@@ -52,6 +52,20 @@
  * cuyo `message` empieza por `[fase] …` e incluye comando + exitCode + los
  * últimos chars de stderr/stdout. runPipeline copia ese `message` a `job.error`.
  *
+ * DIAGNÓSTICO DEL RENDER (el truco del log file): el comando de render se ejecuta
+ * vía `sh -c 'npx … hyperframes render … > /tmp/render.log 2>&1'`. Si el comando
+ * muere a media ejecución (OOM de Chromium, crash) el SDK lanza "Stream ended
+ * before command finished" SIN entregar result → no se puede leer result.stderr().
+ * Para no perder la causa real, tras el runCommand (resuelva con exit≠0 O lance
+ * "Stream ended") leemos `/tmp/render.log` del sandbox y metemos su cola (~1500
+ * chars) en el Error → así GET /api/status muestra el stderr REAL de hyperframes/
+ * Chromium. Si el log tampoco se puede leer (sandbox muerto), el Error lo indica.
+ *
+ * MEMORIA: `--workers` ya NO es `auto` (= nº de vCPUs, que con muchos vCPUs lanzaba
+ * demasiados Chromium a 1080×1920 y reventaba la RAM). Ahora es configurable por
+ * env `RENDER_WORKERS` (default 2). Los vCPUs (y por tanto la RAM: 2 GB/vCPU) son
+ * configurables por env `SANDBOX_VCPUS` (default 8 = máx Pro → 16 GB) en sandbox-lib.
+ *
  * ENV NECESARIAS (ver REQUISITOS DE DEPLOY en el README):
  *   - En Vercel: VERCEL_OIDC_TOKEN (auto) → autentica el Sandbox API.
  *   - Fuera de Vercel: VERCEL_TOKEN + VERCEL_TEAM_ID + VERCEL_PROJECT_ID.
@@ -91,6 +105,132 @@ const SANDBOX_TIMEOUT_MS = RENDER_TIMEOUT_MS + 30_000
 
 /** Segundo del que se extrae el poster (la escena "identity" ya está montada). */
 const POSTER_SECOND = 3
+
+/**
+ * Nº de workers (procesos Chromium en paralelo) del render. Configurable por env
+ * `RENDER_WORKERS` (default 2).
+ *
+ * Antes era `--workers auto` = nº de vCPUs: con 8 vCPUs eso lanza 8 Chromium
+ * renderizando 1080×1920 a la vez → pico de RAM enorme → OOM de la microVM →
+ * proceso muerto → "Stream ended before command finished" a media ejecución.
+ *
+ * Un valor conservador (2) deja ~8 GB por worker en una microVM de 16 GB (8 vCPUs
+ * en Pro), eliminando el OOM a costa de algo más de tiempo de render (los 495
+ * frames se reparten en 2 colas). Subir vía env si la RAM lo permite. Se sanea a
+ * un entero ≥ 1; valores inválidos caen al default 2.
+ */
+const RENDER_WORKERS: number = (() => {
+  const raw = Number(process.env['RENDER_WORKERS'])
+  return Number.isInteger(raw) && raw >= 1 ? raw : 2
+})()
+
+/** Ruta DENTRO del sandbox donde el render vuelca stdout+stderr (sobrevive al fallo). */
+const SANDBOX_RENDER_LOG = '/tmp/render.log'
+
+/**
+ * Escapa un valor para incrustarlo entre comillas SIMPLES en un comando de shell
+ * POSIX. En sh, dentro de '…' todo es literal salvo la propia comilla simple, que
+ * se cierra y se reabre con la secuencia clásica `'\''`. Imprescindible para pasar
+ * el JSON de `--variables` (lleno de comillas dobles, llaves y posibles espacios)
+ * sin que la shell lo reinterprete.
+ */
+function shSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+// ─── Render con captura de log que sobrevive al "Stream ended" ─────────────────
+
+/**
+ * Lee la cola del log de render del sandbox para incrustarla en un Error.
+ *
+ * Es la PIEZA CLAVE del diagnóstico: el render se ejecuta vía `sh -c '… > log 2>&1'`,
+ * así que TODO el stdout/stderr de hyperframes/Chromium queda en un fichero DENTRO
+ * de la microVM. Pase lo que pase con `runCommand` (resuelva con exitCode≠0 o lance
+ * "Stream ended before command finished" sin devolver result), leemos ese fichero y
+ * metemos su cola en el mensaje. Si la lectura falla (sandbox muerto), lo decimos.
+ *
+ * @returns la cola del log (≤ maxChars), o un marcador legible si no se pudo leer.
+ */
+async function readRenderLogTail(
+  sandbox: Sandbox,
+  signal: AbortSignal,
+  maxChars = 1500,
+): Promise<string> {
+  try {
+    const buf = await sandbox.readFileToBuffer(
+      { path: SANDBOX_RENDER_LOG },
+      { signal },
+    )
+    if (!buf) return '(log de render vacío o inexistente: el comando murió antes de escribir nada)'
+    const text = buf.toString('utf8').trim()
+    if (!text) return '(log de render vacío)'
+    return text.slice(-maxChars)
+  } catch (readErr: unknown) {
+    const m = readErr instanceof Error ? readErr.message : String(readErr)
+    return `(no se pudo leer ${SANDBOX_RENDER_LOG} del sandbox — probablemente muerto/OOM: ${m})`
+  }
+}
+
+/**
+ * Ejecuta el render de HyperFrames redirigiendo TODA su salida a un fichero en el
+ * sandbox, y lanza un Error RICO (con la cola de ese log) en CUALQUIER fallo —
+ * incluido el "Stream ended before command finished" que mata el `runCommand`
+ * antes de devolver result (y que, por tanto, NO deja leer result.stderr()).
+ *
+ * Por qué `sh -c` con redirect en vez de `runOrThrow(npx, …)`:
+ *   - `runOrThrow` asume que `runCommand` RESUELVE y lee `result.stderr()`. Pero el
+ *     stream largo del render (495 frames) se corta y `runCommand` RECHAZA → no hay
+ *     result que leer → perdíamos la causa real.
+ *   - Redirigiendo a `/tmp/render.log 2>&1`, el stderr de Chromium/hyperframes queda
+ *     persistido en disco y lo recuperamos aunque el stream se haya cortado.
+ */
+async function runRenderWithLog(
+  sandbox: Sandbox,
+  signal: AbortSignal,
+  variablesJson: string,
+): Promise<void> {
+  // Comando real, con --variables y salida redirigida al log dentro del sandbox.
+  // Solo el JSON de --variables necesita escaparse (el resto son tokens fijos).
+  const renderCmd = [
+    'npx',
+    '--no-install',
+    'hyperframes',
+    'render',
+    SANDBOX_COMPOSITION_DIR,
+    '-o',
+    SANDBOX_MP4,
+    '--workers',
+    String(RENDER_WORKERS),
+    '--non-interactive',
+    '--variables',
+    shSingleQuote(variablesJson),
+  ].join(' ')
+
+  const script = `${renderCmd} > ${SANDBOX_RENDER_LOG} 2>&1`
+
+  let result: Awaited<ReturnType<Sandbox['runCommand']>> | undefined
+  try {
+    result = await sandbox.runCommand({ cmd: 'sh', args: ['-c', script], signal })
+  } catch (runErr: unknown) {
+    // Caso "Stream ended before command finished" (u otro throw de runCommand):
+    // NO hay result → la única causa real está en el log del sandbox. Lo leemos.
+    const runMsg = runErr instanceof Error ? runErr.message : String(runErr)
+    const logTail = await readRenderLogTail(sandbox, signal)
+    throw new Error(
+      `[render] runCommand falló sin entregar resultado (${runMsg}). ` +
+        `workers=${RENDER_WORKERS}. Cola de ${SANDBOX_RENDER_LOG}:\n${logTail}`,
+    )
+  }
+
+  // runCommand resolvió: si exit≠0, el log tiene el stderr real de hyperframes.
+  if (result.exitCode !== 0) {
+    const logTail = await readRenderLogTail(sandbox, signal)
+    throw new Error(
+      `[render] hyperframes render falló (exit ${result.exitCode}). ` +
+        `workers=${RENDER_WORKERS}. Cola de ${SANDBOX_RENDER_LOG}:\n${logTail}`,
+    )
+  }
+}
 
 // ─── Implementación del adaptador ───────────────────────────────────────────────
 
@@ -187,23 +327,11 @@ export function createSandboxRenderAdapter(): RenderAdapter {
 
         // 4. Renderizar. `--variables` aplica a la composición raíz; el
         //    index.html re-propaga las vars fusionadas a las sub-escenas.
+        //    Se ejecuta vía `sh -c '… > /tmp/render.log 2>&1'` para capturar la
+        //    causa REAL del fallo incluso cuando el comando muere a media ejecución
+        //    (OOM/crash) y el SDK lanza "Stream ended before command finished".
         phase = 'render'
-        await runOrThrow(sandbox, 'render', signal, {
-          cmd: 'npx',
-          args: [
-            '--no-install',
-            'hyperframes',
-            'render',
-            SANDBOX_COMPOSITION_DIR,
-            '-o',
-            SANDBOX_MP4,
-            '--workers',
-            'auto',
-            '--non-interactive',
-            '--variables',
-            variablesJson,
-          ],
-        })
+        await runRenderWithLog(sandbox, signal, variablesJson)
 
         // 5. Extraer el poster (frame ~3 s) con el ffmpeg del sandbox.
         phase = 'poster'
