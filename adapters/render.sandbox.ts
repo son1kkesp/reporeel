@@ -56,7 +56,16 @@ import type { RenderAdapter } from './render'
 
 // ─── Constantes de configuración ───────────────────────────────────────────────
 
-/** Carpeta de la composición HyperFrames en el repo (relativa a cwd del proceso). */
+/**
+ * Carpeta de la composición HyperFrames en el repo.
+ *
+ * Se resuelve con `process.cwd()` en lugar de `__dirname` o `import.meta.url`
+ * porque en una Vercel Function `process.cwd()` apunta a la raíz del proyecto
+ * incluido en el bundle (donde Next traza los archivos), mientras que `__dirname`
+ * apunta al directorio del módulo compilado dentro de `.next/`. Ambos coinciden
+ * en local, pero en producción solo `process.cwd()` garantiza que encontramos
+ * `compositions/trailer/` que `outputFileTracingIncludes` ha forzado a incluir.
+ */
 const COMPOSITION_DIR = join(process.cwd(), 'compositions', 'trailer')
 
 /** Directorio destino DENTRO del sandbox donde se vuelca la composición. */
@@ -66,8 +75,15 @@ const SANDBOX_COMPOSITION_DIR = 'composition'
 const SANDBOX_MP4 = 'out.mp4'
 const SANDBOX_POSTER = 'poster.jpg'
 
-/** Timeout global del render (aborto + error claro si se supera). */
-const RENDER_TIMEOUT_MS = 90_000
+/**
+ * Timeout global del render (ms). Configurable por env para poder absorber el
+ * cold-start del Sandbox sin tocar código: instalar Chromium + HyperFrames en
+ * frío tarda ~2 min → con el default de 90 s aborta siempre en la primera
+ * ejecución. Default 280 000 ms (280 s), dentro del maxDuration=300 s de la
+ * Function. Una vez el sandbox tenga snapshot el tiempo bajará drásticamente y
+ * se puede reducir RENDER_TIMEOUT_MS en producción.
+ */
+const RENDER_TIMEOUT_MS = Number(process.env['RENDER_TIMEOUT_MS'] ?? 280_000)
 
 /**
  * Holgura del timeout del propio sandbox por encima del nuestro: si nuestro
