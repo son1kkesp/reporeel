@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html
+  lang="es"
+  data-composition-variables='[
+    {"id":"repoName","type":"string","label":"Nombre del repo","default":"react"},
+    {"id":"heroKind","type":"string","label":"Tipo de heroe","default":"stars"},
+    {"id":"heroValue","type":"string","label":"Valor heroe","default":"228k"},
+    {"id":"lang1","type":"string","label":"Lenguaje 1","default":"JavaScript"},
+    {"id":"lang1Pct","type":"string","label":"% lenguaje 1","default":"68"},
+    {"id":"lang2","type":"string","label":"Lenguaje 2","default":"TypeScript"},
+    {"id":"lang2Pct","type":"string","label":"% lenguaje 2","default":"31"},
+    {"id":"age","type":"string","label":"Edad del repo","default":"vivo desde 2013"},
+    {"id":"tagline","type":"string","label":"Tagline","default":"react — 228k estrellas de confianza · Hecho en JavaScript"},
+    {"id":"line1","type":"string","label":"Linea 1","default":"228k developers ya confían en él"},
+    {"id":"line2","type":"string","label":"Linea 2","default":"Top lenguaje: JavaScript"},
+    {"id":"installCmd","type":"string","label":"Comando instalacion","default":"npm install react@v19.1.0"}
+  ]'
+>
+<head>
+  <meta charset="UTF-8" />
+  <!-- Fuentes vendorizadas localmente (sin CDN en tiempo de render) -->
+  <link rel="stylesheet" href="assets/fonts/fonts.css" />
+  <!-- GSAP vendorizado local (sin CDN en tiempo de render) -->
+  <script src="assets/vendor/gsap.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 1080px;
+      height: 1920px;
+      overflow: hidden;
+      background: #07090d;
+    }
+  </style>
+</head>
+<body>
+
+  <!--
+    Propagación de variables a las sub-composiciones.
+    El CLI `--variables` solo aplica a la composición raíz, así que leemos las
+    variables fusionadas con getVariables() y las escribimos en el
+    data-variable-values de cada escena ANTES de que el runtime monte los hijos.
+    Este script corre de forma síncrona, antes del registro de timelines.
+  -->
+  <script>
+    (function () {
+      var v =
+        (window.__hyperframes && window.__hyperframes.getVariables)
+          ? window.__hyperframes.getVariables()
+          : {};
+      function s(key, fallback) {
+        return v[key] !== undefined && v[key] !== null ? String(v[key]) : fallback;
+      }
+      // Subconjunto de variables que necesita cada escena.
+      window.__sceneVars = {
+        hook: {
+          repoName: s("repoName", "react"),
+          heroKind: s("heroKind", "stars"),
+          heroValue: s("heroValue", "228k")
+        },
+        identity: {
+          repoName: s("repoName", "react"),
+          lang1: s("lang1", "JavaScript"),
+          lang1Pct: s("lang1Pct", "68"),
+          lang2: s("lang2", "TypeScript"),
+          lang2Pct: s("lang2Pct", "31"),
+          tagline: s("tagline", "")
+        },
+        momentum: {
+          heroValue: s("heroValue", "228k"),
+          age: s("age", "vivo desde 2013"),
+          line1: s("line1", ""),
+          line2: s("line2", "")
+        },
+        proof: {
+          repoName: s("repoName", "react"),
+          installCmd: s("installCmd", "npm install react")
+        },
+        cta: {
+          repoName: s("repoName", "react"),
+          installCmd: s("installCmd", "npm install react")
+        }
+      };
+      function inject(id) {
+        var host = document.querySelector('[data-composition-id="' + id + '"]');
+        if (host && window.__sceneVars[id]) {
+          host.setAttribute(
+            "data-variable-values",
+            JSON.stringify(window.__sceneVars[id])
+          );
+        }
+      }
+      ["hook", "identity", "momentum", "proof", "cta"].forEach(inject);
+    })();
+  </script>
+
+  <div
+    id="root"
+    data-composition-id="root"
+    data-start="0"
+    data-width="1080"
+    data-height="1920"
+  >
+    <!-- ESCENA 1 · HOOK (0 → 3.5s) -->
+    <div
+      data-composition-id="hook"
+      data-composition-src="compositions/hook.html"
+      data-start="0"
+      data-track-index="1"
+      data-width="1080"
+      data-height="1920"
+      data-variable-values='{}'
+    ></div>
+
+    <!-- ESCENA 2 · IDENTITY (3.5 → 7s) -->
+    <div
+      data-composition-id="identity"
+      data-composition-src="compositions/identity.html"
+      data-start="hook"
+      data-track-index="1"
+      data-width="1080"
+      data-height="1920"
+      data-variable-values='{}'
+    ></div>
+
+    <!-- ESCENA 3 · MOMENTUM (7 → 10.5s) -->
+    <div
+      data-composition-id="momentum"
+      data-composition-src="compositions/momentum.html"
+      data-start="identity"
+      data-track-index="1"
+      data-width="1080"
+      data-height="1920"
+      data-variable-values='{}'
+    ></div>
+
+    <!-- ESCENA 4 · PROOF (10.5 → 13.5s) -->
+    <div
+      data-composition-id="proof"
+      data-composition-src="compositions/proof.html"
+      data-start="momentum"
+      data-track-index="1"
+      data-width="1080"
+      data-height="1920"
+      data-variable-values='{}'
+    ></div>
+
+    <!-- ESCENA 5 · CTA (13.5 → 16.5s) -->
+    <div
+      data-composition-id="cta"
+      data-composition-src="compositions/cta.html"
+      data-start="proof"
+      data-track-index="1"
+      data-width="1080"
+      data-height="1920"
+      data-variable-values='{}'
+    ></div>
+
+    <!-- Grano cinematográfico encima de todo (estático) -->
+    <div id="grain" class="clip" data-start="0" data-duration="16.5" data-track-index="9"></div>
+    <style>
+      #grain {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.05;
+        mix-blend-mode: screen;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      }
+    </style>
+  </div>
+
+  <script>
+    // Duración total fija = duración del timeline raíz (regla del framework).
+    // Las sub-composiciones aportan su propia duración; el tween vacío fija 16.5s.
+    window.__timelines = window.__timelines || {};
+    (function () {
+      var tl = gsap.timeline({ paused: true });
+      tl.set({}, {}, 16.5);
+      window.__timelines["root"] = tl;
+    })();
+  </script>
+</body>
+</html>

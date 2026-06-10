@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html
+  lang="es"
+  data-composition-variables='[
+    {"id":"repoName","type":"string","label":"Nombre del repo","default":"react"},
+    {"id":"heroKind","type":"string","label":"Tipo de heroe","default":"stars"},
+    {"id":"heroValue","type":"string","label":"Valor heroe","default":"228k"}
+  ]'
+>
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="../assets/fonts/fonts.css" />
+  <script src="../assets/vendor/gsap.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    #hook {
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      position: relative;
+      width: 1080px;
+      height: 1920px;
+      overflow: hidden;
+      background: #07090d;
+    }
+    #hook .bg {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(60% 45% at 50% 32%, #1b2b55 0%, rgba(7, 9, 13, 0) 70%),
+        radial-gradient(80% 50% at 50% 100%, #10203f 0%, rgba(7, 9, 13, 0) 60%);
+    }
+    #hook .stack {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 0 80px;
+      text-align: center;
+    }
+    #hook .kicker {
+      font-size: 40px;
+      font-weight: 500;
+      letter-spacing: 8px;
+      text-transform: uppercase;
+      color: #5b7bb4;
+      opacity: 0;
+    }
+    #hook .hero-value {
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 700;
+      font-size: 360px;
+      line-height: 0.9;
+      letter-spacing: -8px;
+      color: #ffffff;
+      margin: 24px 0 8px;
+      opacity: 0;
+      text-shadow: 0 0 80px rgba(88, 166, 255, 0.45);
+    }
+    #hook .hero-value .suffix {
+      color: #58a6ff;
+    }
+    #hook .hero-kind {
+      font-size: 64px;
+      font-weight: 700;
+      color: #c9d6ee;
+      letter-spacing: 1px;
+      opacity: 0;
+    }
+    #hook .repo {
+      margin-top: 90px;
+      font-size: 72px;
+      font-weight: 700;
+      letter-spacing: -2px;
+      color: #ffffff;
+      opacity: 0;
+    }
+    #hook .repo .name { color: #58a6ff; }
+    #hook .underline {
+      width: 0;
+      height: 8px;
+      margin-top: 28px;
+      border-radius: 4px;
+      background: linear-gradient(90deg, #58a6ff, #a371f7);
+    }
+  </style>
+</head>
+<body>
+  <div
+    id="hook"
+    data-composition-id="hook"
+    data-width="1080"
+    data-height="1920"
+  >
+    <div class="bg"></div>
+    <div class="stack">
+      <div class="kicker" id="kicker">GitHub</div>
+      <div class="hero-value" id="heroValue">0</div>
+      <div class="hero-kind" id="heroKind">estrellas</div>
+      <div class="repo" id="repo"><span class="name">repo</span></div>
+      <div class="underline" id="underline"></div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var root = document.querySelector('#hook');
+      var vars = (window.__hyperframes && window.__hyperframes.getVariables)
+        ? window.__hyperframes.getVariables()
+        : {};
+      var repoName = String(vars.repoName || "react").slice(0, 40);
+      var heroKind = String(vars.heroKind || "stars");
+      var heroValueRaw = String(vars.heroValue || "0");
+
+      var kindLabel = {
+        stars: "estrellas",
+        momentum: "commits este trimestre",
+        fresh: "año de nacimiento"
+      }[heroKind] || "estrellas";
+      root.querySelector("#heroKind").textContent = kindLabel;
+      root.querySelector("#repo").innerHTML =
+        '<span class="name">' + repoName + "</span>";
+
+      var m = heroValueRaw.match(/^([+-]?)([\d.,]+)\s*([a-zA-Z%]*)$/);
+      var sign = m ? m[1] : "";
+      var num = m ? parseFloat(m[2].replace(/,/g, "")) : 0;
+      var suffix = m ? m[3] : "";
+      if (isNaN(num)) num = 0;
+      var isYear = heroKind === "fresh" && suffix === "" && num >= 1900;
+      var decimals = !isYear && /\./.test(heroValueRaw) ? 1 : 0;
+
+      var elValue = root.querySelector("#heroValue");
+      function paint(v) {
+        var shown = isYear ? String(Math.round(v)) : v.toFixed(decimals);
+        elValue.innerHTML =
+          sign + shown + (suffix ? '<span class="suffix">' + suffix + "</span>" : "");
+      }
+      paint(0);
+
+      var counter = { v: 0 };
+      var tl = gsap.timeline({ paused: true });
+
+      tl.fromTo("#kicker",
+        { opacity: 0, y: -30, letterSpacing: "24px" },
+        { opacity: 1, y: 0, letterSpacing: "8px", duration: 0.4, ease: "power3.out" }, 0.1);
+
+      tl.fromTo("#heroValue",
+        { opacity: 0, scale: 1.4 },
+        { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(2)" }, 0.35);
+      tl.to(counter,
+        { v: num, duration: 1.1, ease: "power2.out", onUpdate: function () { paint(counter.v); } }, 0.4);
+
+      tl.fromTo("#heroKind",
+        { opacity: 0, y: 20 },
+        { opacity: 1, y: 0, duration: 0.4, ease: "power2.out" }, 1.5);
+
+      tl.fromTo("#repo",
+        { opacity: 0, y: 50, scale: 0.9 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.45, ease: "back.out(1.6)" }, 1.75);
+      tl.fromTo("#underline",
+        { width: 0 },
+        { width: 320, duration: 0.5, ease: "power2.inOut" }, 2.0);
+
+      tl.to("#heroValue", { scale: 1.03, duration: 0.3, ease: "sine.inOut", yoyo: true, repeat: 1 }, 2.6);
+
+      tl.set({}, {}, 3.5);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines["hook"] = tl;
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html
+  lang="es"
+  data-composition-variables='[
+    {"id":"repoName","type":"string","label":"Nombre del repo","default":"react"},
+    {"id":"lang1","type":"string","label":"Lenguaje 1","default":"JavaScript"},
+    {"id":"lang1Pct","type":"string","label":"% lenguaje 1","default":"68"},
+    {"id":"lang2","type":"string","label":"Lenguaje 2","default":"TypeScript"},
+    {"id":"lang2Pct","type":"string","label":"% lenguaje 2","default":"31"},
+    {"id":"tagline","type":"string","label":"Tagline","default":"react — hecho en JavaScript"}
+  ]'
+>
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="../assets/fonts/fonts.css" />
+  <script src="../assets/vendor/gsap.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    #identity {
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      position: relative;
+      width: 1080px;
+      height: 1920px;
+      overflow: hidden;
+      background: #07090d;
+    }
+    #identity .bg {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(70% 50% at 50% 38%, #15233f 0%, rgba(7, 9, 13, 0) 65%);
+    }
+    #identity .wrap {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 90px;
+    }
+    #identity .eyebrow {
+      font-size: 38px;
+      font-weight: 500;
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      color: #5b7bb4;
+      opacity: 0;
+      margin-bottom: 18px;
+    }
+    #identity .tagline {
+      font-size: 58px;
+      font-weight: 700;
+      line-height: 1.15;
+      letter-spacing: -1px;
+      color: #ffffff;
+      opacity: 0;
+      margin-bottom: 90px;
+      min-height: 1px;
+    }
+    #identity .bar-row {
+      margin-bottom: 56px;
+      opacity: 0;
+    }
+    #identity .bar-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 18px;
+    }
+    #identity .bar-name {
+      font-size: 52px;
+      font-weight: 700;
+      color: #e8eefc;
+    }
+    #identity .bar-pct {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 56px;
+      font-weight: 700;
+      color: #58a6ff;
+    }
+    #identity .bar-track {
+      width: 100%;
+      height: 36px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.06);
+      overflow: hidden;
+    }
+    #identity .bar-fill {
+      width: 0;
+      height: 100%;
+      border-radius: 18px;
+    }
+    #identity .fill-1 { background: linear-gradient(90deg, #58a6ff, #79c0ff); }
+    #identity .fill-2 { background: linear-gradient(90deg, #a371f7, #d2a8ff); }
+  </style>
+</head>
+<body>
+  <div
+    id="identity"
+    data-composition-id="identity"
+    data-width="1080"
+    data-height="1920"
+  >
+    <div class="bg"></div>
+    <div class="wrap">
+      <div class="eyebrow" id="eyebrow">Construido con</div>
+      <div class="tagline" id="tagline">tagline</div>
+
+      <div class="bar-row" id="row1">
+        <div class="bar-head">
+          <span class="bar-name" id="name1">JavaScript</span>
+          <span class="bar-pct" id="pct1">0%</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill fill-1" id="fill1"></div></div>
+      </div>
+
+      <div class="bar-row" id="row2">
+        <div class="bar-head">
+          <span class="bar-name" id="name2">TypeScript</span>
+          <span class="bar-pct" id="pct2">0%</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill fill-2" id="fill2"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var root = document.querySelector('#identity');
+      var vars = (window.__hyperframes && window.__hyperframes.getVariables)
+        ? window.__hyperframes.getVariables()
+        : {};
+
+      function clampPct(raw) {
+        var n = parseFloat(String(raw).replace(/[^\d.]/g, ""));
+        if (isNaN(n)) n = 0;
+        return Math.max(0, Math.min(100, n));
+      }
+
+      var lang1 = String(vars.lang1 || "código").slice(0, 24);
+      var lang2 = String(vars.lang2 || "").slice(0, 24);
+      var p1 = clampPct(vars.lang1Pct);
+      var p2 = clampPct(vars.lang2Pct);
+      var tagline = String(vars.tagline || "").slice(0, 80);
+
+      root.querySelector("#name1").textContent = lang1;
+      root.querySelector("#name2").textContent = lang2;
+      root.querySelector("#tagline").textContent = tagline;
+
+      var hasSecond = lang2.length > 0 && p2 > 0;
+      var row2 = root.querySelector("#row2");
+      if (!hasSecond) { row2.style.display = "none"; }
+
+      var c1 = { pa: 0 }, c2 = { pb: 0 };
+      var pct1El = root.querySelector("#pct1"), pct2El = root.querySelector("#pct2");
+
+      var tl = gsap.timeline({ paused: true });
+
+      tl.fromTo("#eyebrow", { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.35, ease: "power2.out" }, 0.1);
+      tl.fromTo("#tagline",
+        { opacity: 0, y: 30, clipPath: "inset(0 100% 0 0)" },
+        { opacity: 1, y: 0, clipPath: "inset(0 0% 0 0)", duration: 0.6, ease: "power3.out" }, 0.25);
+
+      tl.fromTo("#row1", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.35, ease: "power2.out" }, 0.85);
+      tl.to("#fill1", { width: p1 + "%", duration: 0.9, ease: "power3.out" }, 0.95);
+      tl.to(c1, { pa: p1, duration: 0.9, ease: "power3.out",
+        onUpdate: function () { pct1El.textContent = Math.round(c1.pa) + "%"; } }, 0.95);
+
+      if (hasSecond) {
+        tl.fromTo("#row2", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.35, ease: "power2.out" }, 1.25);
+        tl.to("#fill2", { width: p2 + "%", duration: 0.9, ease: "power3.out" }, 1.35);
+        tl.to(c2, { pb: p2, duration: 0.9, ease: "power3.out",
+          onUpdate: function () { pct2El.textContent = Math.round(c2.pb) + "%"; } }, 1.35);
+      }
+
+      tl.set({}, {}, 3.5);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines["identity"] = tl;
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html
+  lang="es"
+  data-composition-variables='[
+    {"id":"heroValue","type":"string","label":"Valor heroe","default":"228k"},
+    {"id":"age","type":"string","label":"Edad del repo","default":"vivo desde 2013"},
+    {"id":"line1","type":"string","label":"Linea 1","default":"developers ya confían en él"},
+    {"id":"line2","type":"string","label":"Linea 2","default":"Top lenguaje: JavaScript"}
+  ]'
+>
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="../assets/fonts/fonts.css" />
+  <script src="../assets/vendor/gsap.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    #momentum {
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      position: relative;
+      width: 1080px;
+      height: 1920px;
+      overflow: hidden;
+      background: #07090d;
+    }
+    #momentum .bg {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(70% 50% at 50% 40%, #122b21 0%, rgba(7, 9, 13, 0) 65%);
+    }
+    #momentum .wrap {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 0 80px;
+      text-align: center;
+    }
+    #momentum .eyebrow {
+      font-size: 38px;
+      font-weight: 500;
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      color: #4ea672;
+      opacity: 0;
+      margin-bottom: 30px;
+    }
+    #momentum .big {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 220px;
+      font-weight: 700;
+      line-height: 0.95;
+      letter-spacing: -4px;
+      color: #ffffff;
+      opacity: 0;
+      text-shadow: 0 0 70px rgba(63, 185, 80, 0.4);
+    }
+    #momentum .big .suffix { color: #3fb950; }
+    #momentum .age {
+      margin-top: 24px;
+      font-size: 60px;
+      font-weight: 700;
+      color: #3fb950;
+      opacity: 0;
+    }
+    #momentum .lines {
+      margin-top: 90px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+      width: 100%;
+    }
+    #momentum .line {
+      font-size: 46px;
+      font-weight: 500;
+      color: #c9d6ee;
+      opacity: 0;
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      justify-content: center;
+    }
+    #momentum .dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #3fb950;
+      flex: 0 0 auto;
+    }
+  </style>
+</head>
+<body>
+  <div
+    id="momentum"
+    data-composition-id="momentum"
+    data-width="1080"
+    data-height="1920"
+  >
+    <div class="bg"></div>
+    <div class="wrap">
+      <div class="eyebrow" id="eyebrow">Con tracción</div>
+      <div class="big" id="big">0</div>
+      <div class="age" id="age">vivo desde 2013</div>
+      <div class="lines">
+        <div class="line" id="line1"><span class="dot"></span><span id="line1text">linea 1</span></div>
+        <div class="line" id="line2"><span class="dot"></span><span id="line2text">linea 2</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var root = document.querySelector('#momentum');
+      var vars = (window.__hyperframes && window.__hyperframes.getVariables)
+        ? window.__hyperframes.getVariables()
+        : {};
+
+      var heroValueRaw = String(vars.heroValue || "0");
+      var age = String(vars.age || "").slice(0, 40);
+      var line1 = String(vars.line1 || "").slice(0, 80);
+      var line2 = String(vars.line2 || "").slice(0, 80);
+
+      root.querySelector("#age").textContent = age;
+      root.querySelector("#line1text").textContent = line1;
+      root.querySelector("#line2text").textContent = line2;
+      if (!line2) { root.querySelector("#line2").style.display = "none"; }
+
+      var m = heroValueRaw.match(/^([+-]?)([\d.,]+)\s*([a-zA-Z%]*)$/);
+      var sign = m ? m[1] : "";
+      var num = m ? parseFloat(m[2].replace(/,/g, "")) : 0;
+      var suffix = m ? m[3] : "";
+      if (isNaN(num)) num = 0;
+      var decimals = /\./.test(heroValueRaw) ? 1 : 0;
+
+      var bigEl = root.querySelector("#big");
+      function paint(v) {
+        bigEl.innerHTML = sign + v.toFixed(decimals) +
+          (suffix ? '<span class="suffix">' + suffix + "</span>" : "");
+      }
+      paint(0);
+
+      var c = { v: 0 };
+      var tl = gsap.timeline({ paused: true });
+
+      tl.fromTo("#eyebrow", { opacity: 0, y: -20 }, { opacity: 1, y: 0, duration: 0.35, ease: "power2.out" }, 0.1);
+      tl.fromTo("#big", { opacity: 0, scale: 1.25 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.8)" }, 0.3);
+      tl.to(c, { v: num, duration: 1.0, ease: "power2.out", onUpdate: function () { paint(c.v); } }, 0.35);
+      tl.fromTo("#age", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.4, ease: "power2.out" }, 1.4);
+      tl.fromTo("#line1", { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.4, ease: "power2.out" }, 1.7);
+      tl.fromTo("#line2", { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.4, ease: "power2.out" }, 2.0);
+
+      tl.to("#big", { scale: 1.03, duration: 0.3, ease: "sine.inOut", yoyo: true, repeat: 1 }, 2.6);
+
+      tl.set({}, {}, 3.5);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines["momentum"] = tl;
+    })();
+  </script>
+</body>
+</html>

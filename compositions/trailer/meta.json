@@ -1,0 +1,22 @@
+{
+  "title": "reporeel-trailer",
+  "description": "RepoReel — convierte un repo de GitHub en un trailer vertical 9:16 que para el scroll. 5 escenas: hook, identity, momentum, proof, cta.",
+  "width": 1080,
+  "height": 1920,
+  "fps": 30,
+  "duration": 16.5,
+  "variables": [
+    { "id": "repoName",  "type": "string", "label": "Nombre del repo",                "default": "react" },
+    { "id": "heroKind",  "type": "string", "label": "Tipo de heroe (stars/momentum/fresh)", "default": "stars" },
+    { "id": "heroValue", "type": "string", "label": "Valor heroe (dato grande)",       "default": "228k" },
+    { "id": "lang1",     "type": "string", "label": "Lenguaje 1",                      "default": "JavaScript" },
+    { "id": "lang1Pct",  "type": "string", "label": "Porcentaje lenguaje 1",           "default": "68" },
+    { "id": "lang2",     "type": "string", "label": "Lenguaje 2",                      "default": "TypeScript" },
+    { "id": "lang2Pct",  "type": "string", "label": "Porcentaje lenguaje 2",           "default": "31" },
+    { "id": "age",       "type": "string", "label": "Edad del repo",                   "default": "vivo desde 2013" },
+    { "id": "tagline",   "type": "string", "label": "Tagline",                         "default": "react — 228k estrellas de confianza · Hecho en JavaScript" },
+    { "id": "line1",     "type": "string", "label": "Linea de copy 1",                "default": "228k developers ya confían en él" },
+    { "id": "line2",     "type": "string", "label": "Linea de copy 2",                "default": "Top lenguaje: JavaScript" },
+    { "id": "installCmd","type": "string", "label": "Comando de instalacion",          "default": "npm install react@v19.1.0" }
+  ]
+}

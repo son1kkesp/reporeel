@@ -26,6 +26,9 @@ test-results/
 coverage/
 /blob-report/
 
+# rendered video artifacts (binarios, no se versionan)
+renders/
+
 # misc
 .DS_Store
 *.pem

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html
+  lang="es"
+  data-composition-variables='[
+    {"id":"repoName","type":"string","label":"Nombre del repo","default":"react"},
+    {"id":"installCmd","type":"string","label":"Comando instalacion","default":"npm install react"}
+  ]'
+>
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="../assets/fonts/fonts.css" />
+  <script src="../assets/vendor/gsap.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    #proof {
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      position: relative;
+      width: 1080px;
+      height: 1920px;
+      overflow: hidden;
+      background: #07090d;
+    }
+    #proof .bg {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(70% 50% at 50% 45%, #1a1530 0%, rgba(7, 9, 13, 0) 65%);
+    }
+    #proof .wrap {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 0 70px;
+    }
+    #proof .eyebrow {
+      font-size: 40px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #a371f7;
+      opacity: 0;
+      margin-bottom: 44px;
+      text-align: center;
+    }
+    #proof .term {
+      width: 100%;
+      max-width: 940px;
+      border-radius: 28px;
+      background: #0d1117;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      box-shadow: 0 40px 120px rgba(0, 0, 0, 0.6), 0 0 80px rgba(163, 113, 247, 0.18);
+      overflow: hidden;
+      opacity: 0;
+    }
+    #proof .term-bar {
+      height: 78px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 0 32px;
+      background: #161b22;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    #proof .tdot { width: 24px; height: 24px; border-radius: 50%; }
+    #proof .tdot.r { background: #ff5f56; }
+    #proof .tdot.y { background: #ffbd2e; }
+    #proof .tdot.g { background: #27c93f; }
+    #proof .term-title {
+      margin-left: 16px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 30px;
+      color: #6e7681;
+    }
+    #proof .term-body {
+      padding: 48px 40px 56px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 44px;
+      line-height: 1.5;
+      min-height: 220px;
+    }
+    #proof .prompt { color: #3fb950; }
+    #proof .cmd { color: #e6edf3; word-break: break-all; }
+    #proof .caret {
+      display: inline-block;
+      width: 22px;
+      height: 50px;
+      margin-left: 4px;
+      vertical-align: -8px;
+      background: #58a6ff;
+    }
+    #proof .ok {
+      display: block;
+      margin-top: 28px;
+      color: #7ee787;
+      opacity: 0;
+      font-size: 38px;
+    }
+  </style>
+</head>
+<body>
+  <div
+    id="proof"
+    data-composition-id="proof"
+    data-width="1080"
+    data-height="1920"
+  >
+    <div class="bg"></div>
+    <div class="wrap">
+      <div class="eyebrow" id="eyebrow">Empieza en una línea</div>
+      <div class="term" id="term">
+        <div class="term-bar">
+          <span class="tdot r"></span><span class="tdot y"></span><span class="tdot g"></span>
+          <span class="term-title" id="termTitle">zsh — repo</span>
+        </div>
+        <div class="term-body">
+          <span class="prompt">$ </span><span class="cmd" id="cmd"></span><span class="caret" id="caret"></span>
+          <span class="ok" id="ok">✓ listo</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var root = document.querySelector('#proof');
+      var vars = (window.__hyperframes && window.__hyperframes.getVariables)
+        ? window.__hyperframes.getVariables()
+        : {};
+
+      var repoName = String(vars.repoName || "repo").slice(0, 40);
+      var cmd = String(vars.installCmd || ("git clone " + repoName)).slice(0, 80);
+      root.querySelector("#termTitle").textContent = "zsh — " + repoName;
+
+      var cmdEl = root.querySelector("#cmd");
+
+      var typer = { n: 0 };
+      function paintTyping() {
+        var k = Math.round(typer.n);
+        cmdEl.textContent = cmd.slice(0, k);
+      }
+      paintTyping();
+
+      var tl = gsap.timeline({ paused: true });
+
+      tl.fromTo("#eyebrow", { opacity: 0, y: -20 }, { opacity: 1, y: 0, duration: 0.35, ease: "power2.out" }, 0.05);
+      tl.fromTo("#term",
+        { opacity: 0, y: 60, scale: 0.92 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.4)" }, 0.25);
+
+      tl.to(typer, { n: cmd.length, duration: 1.4, ease: "none", onUpdate: paintTyping }, 0.8);
+
+      tl.to("#caret", { opacity: 0, duration: 0.18, repeat: 7, yoyo: true, ease: "steps(1)" }, 0.3);
+      tl.to("#caret", { opacity: 0, duration: 0.01 }, 2.3);
+
+      tl.fromTo("#ok", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.35, ease: "power2.out" }, 2.4);
+
+      tl.set({}, {}, 3.0);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines["proof"] = tl;
+    })();
+  </script>
+</body>
+</html>
