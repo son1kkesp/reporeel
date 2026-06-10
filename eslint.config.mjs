@@ -12,7 +12,19 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendor / minified third-party files — not our code, should not be linted.
+    "compositions/**/vendor/**",
+    "**/*.min.js",
   ]),
+  // Allow underscore-prefixed parameters as intentionally unused (idiomatic TS).
+  {
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;

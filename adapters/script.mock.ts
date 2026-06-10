@@ -25,7 +25,6 @@ export const MOCK_COPY: Copy = {
  * Versión mock de generateCopy. Ignora los argumentos y devuelve MOCK_COPY.
  * La firma es idéntica a la real para poder intercambiarse sin cambiar tipos.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function generateCopy(_storyboard: Beat[], _repo: RepoData): Promise<Copy> {
   return { ...MOCK_COPY }
 }
