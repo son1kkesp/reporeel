@@ -10,157 +10,136 @@
  * Function. El Sandbox es una microVM con disco, hasta 8 vCPUs y horas de
  * ejecución → puede instalar Chromium/FFmpeg y renderizar frame a frame.
  *
- * CÓMO LLEGA LA COMPOSICIÓN AL SANDBOX (decisión clave):
- *   Empaquetamos `compositions/trailer/` (index.html + meta.json + assets/ con
- *   fuentes y GSAP vendorizados + las sub-composiciones HTML) y los escribimos
- *   DENTRO del sandbox con `sandbox.writeFiles(...)` en UNA sola llamada.
+ * ──────────────────────────────────────────────────────────────────────────────
+ * ALINEACIÓN CON EL PATRÓN OFICIAL (hyperframes-vercel-template/lib/sandbox.ts)
  *
- *   → NO se clona el repo. → NO hace falta que el repo esté pusheado ni público.
- *   Los archivos viajan por el SDK desde el filesystem de la Function (la
- *   carpeta `compositions/trailer/` se versiona en el repo y, por tanto, está
- *   presente en el bundle del despliegue). Es exactamente el patrón de la
- *   plantilla oficial `hyperframes-vercel-template` (`writeFiles` con rutas
- *   `composition/<rel>`), adaptado a que aquí leemos la composición de disco.
+ * La plantilla oficial de HeyGen NO instala Chromium "en caliente" en cada
+ * render. En build-time hornea un SNAPSHOT con TODO ya instalado
+ * (scripts/create-snapshot.ts) y en runtime restaura ese snapshot en ~100 ms.
+ * La preparación del entorno (prepareSandbox) es EXACTAMENTE:
  *
- * FLUJO (renderTrailer):
- *   1. Leer recursivamente `compositions/trailer/` → lista de { path, content }.
- *   2. Crear el Sandbox (runtime node22, iad1).
- *   3. Instalar hyperframes en el sandbox (`npm i -g hyperframes ffmpeg-static`)
- *      + `npx hyperframes browser ensure` (chrome-headless-shell).
- *   4. writeFiles → vuelca la composición en `composition/`.
- *   5. `npx hyperframes render composition -o out.mp4 --workers auto
- *       --non-interactive --variables '<json>'`.
- *   6. Extraer poster (frame ~3 s) con ffmpeg DENTRO del sandbox → poster.jpg.
- *   7. readFileToBuffer de out.mp4 y poster.jpg.
- *   8. put() ambos a Vercel Blob (acceso público).
- *   9. stop() del sandbox (en finally).
- *   → { mp4Url, poster }.
+ *   1. `dnf install -y` de las librerías de SISTEMA que necesita Chromium
+ *      (nss, nspr, atk, cups-libs, libdrm, libxkbcommon, libX*, mesa-libgbm,
+ *      alsa-lib, pango…). Sin ellas chrome-headless-shell NO arranca.   ← FALTABA
+ *   2. `npm install --no-save --no-audit --no-fund hyperframes@latest
+ *      ffmpeg-static ffprobe-static` (LOCAL, no `-g`).                  ← era `-g`
+ *   3. symlinks de los binarios de ffmpeg/ffprobe a /usr/local/bin.     ← FALTABA
+ *   4. `npx --no-install hyperframes browser ensure` (descarga
+ *      chrome-headless-shell, ~90-120 s).
  *
- * TIMEOUT: 90 s globales con AbortController. Si se supera, se aborta el
- * comando, se intenta parar el sandbox y se lanza un error claro.
+ * El render real solo restaura el snapshot, escribe la composición y corre
+ * `hyperframes render` — SIN descargas largas, por eso completa.
+ *
+ * DIAGNÓSTICO de "Stream ended before command finished" (fallo <15 s):
+ *   Hacer `browser ensure` / `dnf` en caliente dispara una descarga larga
+ *   (chrome-headless-shell) cuyo stream de salida la microVM corta antes de
+ *   que el comando termine. La plantilla lo evita porque eso ya está horneado
+ *   en el snapshot. Este adapter ahora:
+ *     - restaura desde snapshot si hay pointer (path feliz, sin descargas);
+ *     - si no hay snapshot, hace el setup completo (dnf+npm+symlinks+ensure)
+ *       como FALLBACK, replicando prepareSandbox de la plantilla.
+ *
+ * ──────────────────────────────────────────────────────────────────────────────
+ * CÓMO LLEGA LA COMPOSICIÓN AL SANDBOX:
+ *   Empaquetamos `compositions/trailer/` (index.html + meta.json + assets/) y
+ *   los escribimos DENTRO del sandbox con `sandbox.writeFiles(...)` en UNA sola
+ *   llamada, bajo `composition/`. NO se clona el repo. `process.cwd()` apunta a
+ *   la raíz del bundle; `outputFileTracingIncludes` fuerza que la carpeta entre.
+ *
+ * OBSERVABILIDAD (clave): el render corre en `after()`, los `console.*` NO se
+ * ven en los logs de Vercel. La ÚNICA observabilidad fiable es el campo `error`
+ * del job (leído por GET /api/status). Por eso CADA fallo aquí lanza un Error
+ * cuyo `message` empieza por `[fase] …` e incluye comando + exitCode + los
+ * últimos chars de stderr/stdout. runPipeline copia ese `message` a `job.error`.
  *
  * ENV NECESARIAS (ver REQUISITOS DE DEPLOY en el README):
  *   - En Vercel: VERCEL_OIDC_TOKEN (auto) → autentica el Sandbox API.
  *   - Fuera de Vercel: VERCEL_TOKEN + VERCEL_TEAM_ID + VERCEL_PROJECT_ID.
- *   - BLOB_READ_WRITE_TOKEN (auto en Vercel) → subida a Blob.
- *   El SDK de @vercel/sandbox lee estas variables del entorno automáticamente;
- *   no se pasan credenciales explícitas aquí.
+ *   - BLOB_READ_WRITE_TOKEN (auto en Vercel) → subida a Blob y pointer del snapshot.
+ *   - VERCEL_DEPLOYMENT_ID (auto en Vercel) → clave del pointer del snapshot.
  * ──────────────────────────────────────────────────────────────────────────────
  */
 
-import { readdir, readFile } from 'node:fs/promises'
-import { join, relative, sep, posix } from 'node:path'
 import { Sandbox } from '@vercel/sandbox'
 import { put } from '@vercel/blob'
 import type { RenderAdapter } from './render'
+import {
+  COMPOSITION_DIR,
+  SANDBOX_COMPOSITION_DIR,
+  collectCompositionFiles,
+  prepareSandbox,
+  readSnapshotId,
+  runOrThrow,
+  SANDBOX_OPTS,
+} from './sandbox-lib'
 
 // ─── Constantes de configuración ───────────────────────────────────────────────
-
-/**
- * Carpeta de la composición HyperFrames en el repo.
- *
- * Se resuelve con `process.cwd()` en lugar de `__dirname` o `import.meta.url`
- * porque en una Vercel Function `process.cwd()` apunta a la raíz del proyecto
- * incluido en el bundle (donde Next traza los archivos), mientras que `__dirname`
- * apunta al directorio del módulo compilado dentro de `.next/`. Ambos coinciden
- * en local, pero en producción solo `process.cwd()` garantiza que encontramos
- * `compositions/trailer/` que `outputFileTracingIncludes` ha forzado a incluir.
- */
-const COMPOSITION_DIR = join(process.cwd(), 'compositions', 'trailer')
-
-/** Directorio destino DENTRO del sandbox donde se vuelca la composición. */
-const SANDBOX_COMPOSITION_DIR = 'composition'
 
 /** Nombres de los artefactos generados dentro del sandbox. */
 const SANDBOX_MP4 = 'out.mp4'
 const SANDBOX_POSTER = 'poster.jpg'
 
 /**
- * Timeout global del render (ms). Configurable por env para poder absorber el
- * cold-start del Sandbox sin tocar código: instalar Chromium + HyperFrames en
- * frío tarda ~2 min → con el default de 90 s aborta siempre en la primera
- * ejecución. Default 280 000 ms (280 s), dentro del maxDuration=300 s de la
- * Function. Una vez el sandbox tenga snapshot el tiempo bajará drásticamente y
- * se puede reducir RENDER_TIMEOUT_MS en producción.
+ * Timeout global del render (ms). Configurable por env. Con snapshot el render
+ * baja a ~90-120 s; sin snapshot (fallback con setup en caliente) sube a ~3 min,
+ * por eso el default es generoso. Default 280 000 ms (dentro de maxDuration=300).
  */
 const RENDER_TIMEOUT_MS = Number(process.env['RENDER_TIMEOUT_MS'] ?? 280_000)
 
-/**
- * Holgura del timeout del propio sandbox por encima del nuestro: si nuestro
- * AbortController dispara a los 90 s, el sandbox sigue vivo lo justo para que
- * el stop() ordenado funcione. La microVM se factura por uso, así que el
- * margen extra no es gratis pero sí pequeño.
- */
+/** Holgura del timeout de la microVM por encima del nuestro para un stop() limpio. */
 const SANDBOX_TIMEOUT_MS = RENDER_TIMEOUT_MS + 30_000
 
 /** Segundo del que se extrae el poster (la escena "identity" ya está montada). */
 const POSTER_SECOND = 3
 
-// ─── Utilidades de filesystem ──────────────────────────────────────────────────
-
-/** Un archivo de la composición listo para `writeFiles`. */
-interface SandboxFile {
-  /** Ruta relativa POSIX dentro del sandbox (p. ej. `composition/assets/...`). */
-  path: string
-  /** Contenido binario del archivo. */
-  content: Buffer
-}
+// ─── Implementación del adaptador ───────────────────────────────────────────────
 
 /**
- * Lee recursivamente todos los archivos de `dir` y los devuelve con su ruta
- * relativa normalizada a POSIX y prefijada por `prefix` (para escribirlos
- * dentro del sandbox preservando la estructura de carpetas).
+ * Crea (o restaura) el sandbox para el render.
+ *
+ * Path feliz: restaura desde el snapshot pre-horneado (pointer en Blob) → ~100 ms,
+ * SIN descargas en caliente. Si no hay snapshot (o falla la restauración), cae a
+ * crear una microVM fresca y prepararla en caliente (prepareSandbox), que replica
+ * el setup de la plantilla oficial. Etiqueta la fase como `create` para el job.error.
  */
-async function collectCompositionFiles(
-  dir: string,
-  prefix: string,
-): Promise<SandboxFile[]> {
-  const out: SandboxFile[] = []
+async function createOrRestoreSandbox(signal: AbortSignal): Promise<Sandbox> {
+  const snapshotId = await readSnapshotId().catch(() => undefined)
 
-  async function walk(current: string): Promise<void> {
-    const entries = await readdir(current, { withFileTypes: true })
-    for (const entry of entries) {
-      const abs = join(current, entry.name)
-      if (entry.isDirectory()) {
-        await walk(abs)
-      } else if (entry.isFile()) {
-        // Ruta relativa a la raíz de la composición, normalizada a POSIX.
-        const rel = relative(dir, abs).split(sep).join(posix.sep)
-        out.push({
-          path: posix.join(prefix, rel),
-          content: await readFile(abs),
-        })
-      }
+  if (snapshotId) {
+    try {
+      // Restaurar desde snapshot: NO se pasa `runtime` (se hereda del snapshot).
+      return await Sandbox.create({
+        source: { type: 'snapshot', snapshotId },
+        resources: SANDBOX_OPTS.resources,
+        timeout: SANDBOX_TIMEOUT_MS,
+        signal,
+      })
+    } catch (err: unknown) {
+      // En producción NO enmascaramos: si hay snapshot y no restaura, queremos
+      // verlo en job.error (no degradar silenciosamente a setup en caliente, que
+      // es justo lo que provoca el "Stream ended").
+      const msg = err instanceof Error ? err.message : String(err)
+      throw new Error(
+        `[create] restauración de snapshot ${snapshotId} falló: ${msg}`,
+      )
     }
   }
 
-  await walk(dir)
-  return out
+  // Sin snapshot: microVM fresca + setup completo en caliente (fallback).
+  const sandbox = await Sandbox.create({
+    runtime: SANDBOX_OPTS.runtime,
+    resources: SANDBOX_OPTS.resources,
+    timeout: SANDBOX_TIMEOUT_MS,
+    signal,
+  }).catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(`[create] no se pudo crear la microVM: ${msg}`)
+  })
+
+  // prepareSandbox lanza errores ya etiquetados ([install]/[browser]).
+  await prepareSandbox(sandbox, signal)
+  return sandbox
 }
-
-// ─── Helpers de Sandbox ─────────────────────────────────────────────────────────
-
-/**
- * Ejecuta un comando en el sandbox y lanza un error legible si el exit code
- * no es 0 (incluyendo stderr para diagnóstico). Respeta el AbortSignal global.
- */
-async function runOrThrow(
-  sandbox: Sandbox,
-  label: string,
-  cmd: string,
-  args: string[],
-  signal: AbortSignal,
-): Promise<void> {
-  const result = await sandbox.runCommand({ cmd, args, signal })
-  if (result.exitCode !== 0) {
-    const stderr = await result.stderr().catch(() => '')
-    throw new Error(
-      `[render:sandbox] paso "${label}" falló (exit ${result.exitCode}): ${stderr.slice(0, 500)}`,
-    )
-  }
-}
-
-// ─── Implementación del adaptador ───────────────────────────────────────────────
 
 /**
  * Crea el RenderAdapter REAL respaldado por Vercel Sandbox + Vercel Blob.
@@ -174,11 +153,12 @@ export function createSandboxRenderAdapter(): RenderAdapter {
       jobId: string,
       vars: Record<string, string | number>,
     ): Promise<{ mp4Url: string; poster: string }> {
-      // Aborto global a los 90 s. timeoutMs por comando refuerza el aborto a
-      // nivel de microVM (SIGKILL del proceso) además del AbortSignal del SDK.
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), RENDER_TIMEOUT_MS)
       const { signal } = controller
+
+      // Fase actual: se incluye en el error si algo peta de forma inesperada.
+      let phase = 'writeFiles'
 
       // 1. Empaquetar la composición desde disco (no requiere repo pusheado).
       const files = await collectCompositionFiles(
@@ -188,7 +168,7 @@ export function createSandboxRenderAdapter(): RenderAdapter {
       if (files.length === 0) {
         clearTimeout(timer)
         throw new Error(
-          `[render:sandbox] no se encontraron archivos de composición en ${COMPOSITION_DIR}`,
+          `[writeFiles] no se encontraron archivos de composición en ${COMPOSITION_DIR}`,
         )
       }
 
@@ -197,41 +177,20 @@ export function createSandboxRenderAdapter(): RenderAdapter {
 
       let sandbox: Sandbox | undefined
       try {
-        // 2. Crear la microVM. Solo región iad1 (única con Sandbox).
-        sandbox = await Sandbox.create({
-          runtime: 'node22',
-          resources: { vcpus: 4 },
-          timeout: SANDBOX_TIMEOUT_MS,
-          signal,
-        })
+        // 2. Crear/restaurar la microVM (fase `create` interna).
+        phase = 'create'
+        sandbox = await createOrRestoreSandbox(signal)
 
-        // 3. Instalar HyperFrames + ffmpeg-static y asegurar el navegador.
-        //    `npm i -g` deja `hyperframes` resoluble por `npx --no-install`.
-        await runOrThrow(
-          sandbox,
-          'install-hyperframes',
-          'npm',
-          ['install', '-g', 'hyperframes', 'ffmpeg-static', 'ffprobe-static'],
-          signal,
-        )
-        await runOrThrow(
-          sandbox,
-          'browser-ensure',
-          'npx',
-          ['--no-install', 'hyperframes', 'browser', 'ensure'],
-          signal,
-        )
-
-        // 4. Volcar la composición dentro del sandbox (una sola llamada).
+        // 3. Volcar la composición dentro del sandbox (una sola llamada).
+        phase = 'writeFiles'
         await sandbox.writeFiles(files)
 
-        // 5. Renderizar. `--variables` aplica a la composición raíz; el
+        // 4. Renderizar. `--variables` aplica a la composición raíz; el
         //    index.html re-propaga las vars fusionadas a las sub-escenas.
-        await runOrThrow(
-          sandbox,
-          'render',
-          'npx',
-          [
+        phase = 'render'
+        await runOrThrow(sandbox, 'render', signal, {
+          cmd: 'npx',
+          args: [
             '--no-install',
             'hyperframes',
             'render',
@@ -244,16 +203,13 @@ export function createSandboxRenderAdapter(): RenderAdapter {
             '--variables',
             variablesJson,
           ],
-          signal,
-        )
+        })
 
-        // 6. Extraer el poster (frame ~3 s) con el ffmpeg que trae el sandbox.
-        //    `-y` sobreescribe, `-frames:v 1` un único frame, calidad alta.
-        await runOrThrow(
-          sandbox,
-          'poster',
-          'ffmpeg',
-          [
+        // 5. Extraer el poster (frame ~3 s) con el ffmpeg del sandbox.
+        phase = 'poster'
+        await runOrThrow(sandbox, 'poster', signal, {
+          cmd: 'ffmpeg',
+          args: [
             '-y',
             '-ss',
             String(POSTER_SECOND),
@@ -265,23 +221,23 @@ export function createSandboxRenderAdapter(): RenderAdapter {
             '3',
             SANDBOX_POSTER,
           ],
-          signal,
-        )
+        })
 
-        // 7. Recoger los artefactos del sandbox como Buffers.
+        // 6. Recoger los artefactos del sandbox como Buffers.
+        phase = 'read'
         const [mp4Buffer, posterBuffer] = await Promise.all([
           sandbox.readFileToBuffer({ path: SANDBOX_MP4 }, { signal }),
           sandbox.readFileToBuffer({ path: SANDBOX_POSTER }, { signal }),
         ])
         if (!mp4Buffer) {
-          throw new Error('[render:sandbox] el render no produjo out.mp4')
+          throw new Error('[read] el render no produjo out.mp4')
         }
         if (!posterBuffer) {
-          throw new Error('[render:sandbox] no se pudo extraer el poster')
+          throw new Error('[read] no se pudo extraer el poster')
         }
 
-        // 8. Subir ambos a Vercel Blob (acceso público, sin sufijo aleatorio
-        //    para que la clave sea estable por jobId).
+        // 7. Subir ambos a Vercel Blob (acceso público, clave estable por jobId).
+        phase = 'blob'
         const [mp4Blob, posterBlob] = await Promise.all([
           put(`trailers/${jobId}.mp4`, mp4Buffer, {
             access: 'public',
@@ -299,21 +255,34 @@ export function createSandboxRenderAdapter(): RenderAdapter {
 
         return { mp4Url: mp4Blob.url, poster: posterBlob.url }
       } catch (err: unknown) {
-        // Distinguir el timeout (aborto) de otros fallos para un error claro.
+        // El timeout (aborto) tiene prioridad: deja claro que fue por tiempo.
         if (signal.aborted) {
-          throw new Error(
-            `[render:sandbox] timeout de render (${RENDER_TIMEOUT_MS / 1000}s) superado para job ${jobId}`,
+          const e = new Error(
+            `[${phase}] timeout de render (${Math.round(RENDER_TIMEOUT_MS / 1000)}s) superado para job ${jobId}`,
           )
+          console.error(e.message)
+          throw e
         }
-        throw err instanceof Error
-          ? err
-          : new Error(`[render:sandbox] error desconocido: ${String(err)}`)
+
+        // Si el error ya viene etiquetado ([fase] …) lo respetamos; si no,
+        // lo prefijamos con la fase actual para que job.error sea diagnosticable.
+        const rawMsg = err instanceof Error ? err.message : String(err)
+        const message = /^\[[a-z]+\]/.test(rawMsg)
+          ? rawMsg
+          : `[${phase}] ${rawMsg}`
+        console.error(message)
+        throw new Error(message)
       } finally {
         clearTimeout(timer)
-        // Parar la microVM siempre (se factura por uso). Errores aquí no deben
-        // enmascarar el error real del render.
+        // Parar la microVM SIEMPRE (se factura por uso). Un fallo aquí NO debe
+        // enmascarar el error real del render: se traga en su propio try/catch.
         if (sandbox) {
-          await sandbox.stop().catch(() => {})
+          try {
+            await sandbox.stop()
+          } catch (stopErr: unknown) {
+            const m = stopErr instanceof Error ? stopErr.message : String(stopErr)
+            console.error(`[stop] fallo al parar el sandbox (no fatal): ${m}`)
+          }
         }
       }
     },
