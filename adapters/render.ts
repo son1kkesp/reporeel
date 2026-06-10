@@ -10,51 +10,41 @@
  * El mock (`render.mock.ts`) devuelve URLs apuntando a __fixtures__/sample.mp4.
  *
  * ──────────────────────────────────────────────────────────────────────────────
- * CONTRATO DEL FLUJO REAL CON VERCEL SANDBOX (para implementar cuando se tenga
- * Vercel Pro activo):
+ * CONTRATO DEL FLUJO REAL CON VERCEL SANDBOX (IMPLEMENTADO en render.sandbox.ts):
  *
- *   Basado en hyperframes-vercel-template (lib/sandbox.ts + app/api/render/route.ts)
- *   y la documentación en MI-PERFIL/hyperframes-docs/02-despliegue-y-agentes.md.
+ *   Basado en hyperframes-vercel-template (lib/sandbox.ts + scripts/create-snapshot.ts).
+ *   La lógica de sandbox compartida vive en adapters/sandbox-lib.ts.
  *
- *   1. PRE-BUILD (scripts/create-snapshot.ts):
- *      - Crear una Vercel Sandbox vacía con `@vercel/sandbox`.
- *      - Dentro: instalar libs Chromium (libnss3, libxcomposite1, pango…) +
- *        `npm install hyperframes ffmpeg-static ffprobe-static` +
- *        `npx hyperframes browser ensure` (descarga chrome-headless-shell).
- *      - Guardar snapshot (~1.1 GB). Cold start en producción: ~100 ms.
- *        Los snapshots expiran a 30 días — hay que refrescarlos periódicamente.
+ *   1. BUILD-TIME (scripts/create-snapshot.ts, enganchado a `build`):
+ *      - Crea una microVM fresca y la prepara (prepareSandbox): `dnf install` de
+ *        libs de sistema de Chromium + `npm install` (hyperframes/ffmpeg/ffprobe)
+ *        + symlinks + `npx hyperframes browser ensure`.
+ *      - Toma el snapshot y guarda su `snapshotId` en un pointer en Blob
+ *        (snapshot-cache/<VERCEL_DEPLOYMENT_ID>.json).
+ *      - Esto evita descargar Chromium "en caliente" en cada render (causa del
+ *        error "Stream ended before command finished").
  *
- *   2. RUNTIME (en renderTrailer):
- *      a. Restaurar snapshot con `@vercel/sandbox`.
- *      b. Copiar los archivos de la composición al Sandbox
- *         (`public/compositions/trailer/` → `/tmp/composition/`).
- *      c. Escribir `variables.json` con los valores de `vars`.
- *      d. Ejecutar dentro del Sandbox:
- *         ```
- *         npx hyperframes render /tmp/composition \
- *           --workers auto \
- *           --non-interactive \
- *           --json \
- *           --variables-file /tmp/variables.json \
- *           --output /tmp/out.mp4
- *         ```
- *         Tiempo estimado: ~90 s para una composición de 15 s a 1080×1920.
- *      e. Leer `/tmp/out.mp4` del Sandbox y subir a Vercel Blob
- *         (`put(key, stream, { access: 'public', contentType: 'video/mp4' })`).
- *      f. Generar poster: capturar primer frame con ffmpeg (ya disponible en Sandbox)
- *         y subirlo a Blob como JPEG.
- *      g. Destruir el Sandbox.
- *      h. Retornar `{ mp4Url, poster }`.
+ *   2. RUNTIME (renderTrailer en render.sandbox.ts):
+ *      a. Restaura el snapshot vía pointer en ~100 ms (sin descargas). Si no hay
+ *         snapshot, cae a setup en caliente (mismo prepareSandbox) como fallback.
+ *      b. writeFiles → vuelca compositions/trailer/ en `composition/`.
+ *      c. `npx --no-install hyperframes render composition -o out.mp4
+ *          --workers auto --non-interactive --variables '<json>'`.
+ *      d. Extrae poster (frame ~3 s) con ffmpeg → poster.jpg.
+ *      e. readFileToBuffer de ambos y `put()` a Vercel Blob (público).
+ *      f. stop() de la microVM en finally.
+ *      g. Retorna `{ mp4Url, poster }`.
+ *      Cada paso comprueba exitCode y lanza un Error `[fase] …` con cmd+stderr,
+ *      que runPipeline copia a job.error (única observabilidad fiable en after()).
  *
  *   Variables de entorno necesarias:
- *     VERCEL_OIDC_TOKEN  — token de OIDC para autenticar con el Sandbox API
- *     BLOB_READ_WRITE_TOKEN — token de Vercel Blob (auto en Vercel Deploy)
+ *     VERCEL_OIDC_TOKEN     — autentica el Sandbox API (auto en Vercel)
+ *     BLOB_READ_WRITE_TOKEN — Vercel Blob + pointer del snapshot (auto en Vercel)
+ *     VERCEL_DEPLOYMENT_ID  — clave del pointer del snapshot (auto en Vercel)
  *
- *   Región: solo `iad1` (Virginia) — Vercel Sandbox no está disponible en otras.
- *   Timeout: declarar `export const maxDuration = 300` en la route (5 min).
- *   La route NO espera este nivel de detalle; `runPipeline` se ejecuta como
- *   fire-and-forget dentro de la request, que Next.js mantiene viva hasta
- *   que la promesa resuelve (o hasta maxDuration).
+ *   Región: solo `iad1` (Virginia) — Vercel Sandbox no está en otras.
+ *   Timeout: `export const maxDuration = 300` en la route; el pipeline corre en
+ *   `after()`, que Next mantiene vivo hasta que resuelve (o hasta maxDuration).
  * ──────────────────────────────────────────────────────────────────────────────
  */
 

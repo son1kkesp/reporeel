@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && tsx scripts/create-snapshot.ts",
+    "snapshot": "tsx scripts/create-snapshot.ts",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
@@ -49,6 +50,7 @@
     "jsdom": "^29.1.1",
     "prettier": "^3.8.4",
     "tailwindcss": "^4",
+    "tsx": "4.22.4",
     "typescript": "^5",
     "vitest": "^4.1.8"
   }
