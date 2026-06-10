@@ -22,8 +22,9 @@
 
 import { readdir, readFile } from 'node:fs/promises'
 import { join, relative, sep, posix } from 'node:path'
+import { setTimeout as setTimeoutPromise } from 'node:timers/promises'
 import { Sandbox } from '@vercel/sandbox'
-import { get, put } from '@vercel/blob'
+import { get, list, put } from '@vercel/blob'
 
 // ─── Opciones base de la microVM ───────────────────────────────────────────────
 
@@ -91,6 +92,57 @@ export interface SandboxFile {
   path: string
   /** Contenido binario del archivo. */
   content: Buffer
+}
+
+// ─── Reintentos ante fallos transitorios del SDK ────────────────────────────────
+
+/**
+ * Devuelve `true` si el error corresponde a un fallo TRANSITORIO del stream del
+ * Sandbox SDK (el stream de salida del comando se cierra antes de que el proceso
+ * termine, típicamente durante descargas largas de Chromium). Estos errores son
+ * seguros de reintentar creando un sandbox NUEVO.
+ */
+export function isTransientSandboxError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const code = (err as NodeJS.ErrnoException & { code?: string }).code
+  if (code === 'stream_ended_early') return true
+  return /stream ended/i.test(err.message)
+}
+
+/**
+ * Ejecuta `fn` hasta `attempts` veces, reintentando SOLO si el error es
+ * transitorio (ver `isTransientSandboxError`). Entre intentos espera un backoff
+ * fijo incremental (2 s × nº de intento ya fallado).
+ *
+ * Loguea cada reintento con el `label` y el motivo del fallo.
+ * Re-lanza el último error si agota todos los intentos.
+ */
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  opts: { attempts?: number; label: string },
+): Promise<T> {
+  const maxAttempts = opts.attempts ?? 3
+  let lastErr: unknown
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn()
+    } catch (err: unknown) {
+      lastErr = err
+      const isLast = attempt === maxAttempts
+      if (isLast || !isTransientSandboxError(err)) {
+        throw err
+      }
+      const msg = err instanceof Error ? err.message : String(err)
+      console.warn(
+        `[${opts.label}] intento ${attempt}/${maxAttempts} falló (transitorio): ${msg}. Reintentando en ${attempt * 2}s…`,
+      )
+      await setTimeoutPromise(attempt * 2_000)
+    }
+  }
+
+  // Nunca se alcanza, pero satisface al compilador.
+  throw lastErr
 }
 
 // ─── Ejecución de comandos (patrón oficial: await + exitCode + stderr) ──────────
@@ -259,6 +311,42 @@ export async function readSnapshotId(): Promise<string | undefined> {
     snapshotId?: string
   }
   return snapshotId
+}
+
+/**
+ * Busca el snapshot más reciente disponible en Blob, recorriendo todos los pointers
+ * del prefijo `snapshot-cache/`. Útil como fallback cuando el pointer del deployment
+ * actual no existe (p. ej. el horneado del build se saltó por error o por timeout).
+ *
+ * @returns el snapshotId del pointer más reciente, o `undefined` si no hay ninguno.
+ */
+export async function readLatestSnapshotId(): Promise<string | undefined> {
+  const token = process.env['BLOB_READ_WRITE_TOKEN']
+  try {
+    const result = await list({
+      prefix: 'snapshot-cache/',
+      limit: 100,
+      ...(token ? { token } : {}),
+    })
+    if (result.blobs.length === 0) return undefined
+
+    // Los blobs de @vercel/blob incluyen `uploadedAt: Date`; ordenamos desc y cogemos el primero.
+    const sorted = result.blobs
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
+      )
+    const latest = sorted[0]
+    if (!latest) return undefined
+
+    const res = await fetch(latest.url)
+    if (!res.ok) return undefined
+    const { snapshotId } = (await res.json()) as { snapshotId?: string }
+    return snapshotId
+  } catch {
+    return undefined
+  }
 }
 
 // ─── Empaquetado de la composición ──────────────────────────────────────────────
