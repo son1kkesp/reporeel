@@ -12,11 +12,14 @@ import { TrailerActions } from "./TrailerActions";
 // Next.js 16: en rutas dinámicas, `params` es una Promise que hay que await.
 type PageParams = { params: Promise<{ owner: string; repo: string }> };
 
-// Resolución absoluta de URLs (los MP4/poster pueden venir como ruta relativa
-// del mock o como URL absoluta de Blob).
-function toAbsolute(url: string): string {
-  if (/^https?:\/\//i.test(url)) return url;
-  return new URL(url, siteUrl).toString();
+// Rutas proxy locales (sirven el MP4/póster a través del dominio de la app).
+// Esto evita que redes corporativas que filtran *.blob.vercel-storage.com
+// bloqueen el vídeo.
+function proxyVideoUrl(owner: string, repo: string): string {
+  return `/v/${owner}/${repo}`;
+}
+function proxyPosterUrl(owner: string, repo: string): string {
+  return `/p/${owner}/${repo}`;
 }
 
 // ─── generateMetadata: OG video + twitter player para auto-preview en redes ────
@@ -51,8 +54,11 @@ export async function generateMetadata({
     };
   }
 
-  const mp4 = toAbsolute(trailer.mp4Url);
-  const poster = toAbsolute(trailer.poster);
+  // URLs proxy absolutas: sirven el contenido a través del dominio de la app
+  // para que las OG cards y el player funcionen incluso en redes que filtran
+  // *.blob.vercel-storage.com.
+  const mp4 = `${siteUrl}${proxyVideoUrl(owner, repo)}`;
+  const poster = `${siteUrl}${proxyPosterUrl(owner, repo)}`;
   const title = `Tráiler de ${slug}`;
   const description = `El tráiler vertical de ${slug}, generado con RepoReel. Míralo y compártelo.`;
 
@@ -116,8 +122,8 @@ export default async function TrailerPage({ params }: PageParams) {
           <TrailerReady
             slug={slug}
             pageUrl={pageUrl}
-            mp4Url={toAbsolute(trailer.mp4Url)}
-            poster={toAbsolute(trailer.poster)}
+            mp4Url={proxyVideoUrl(owner, repo)}
+            poster={proxyPosterUrl(owner, repo)}
           />
         ) : (
           <TrailerMissing owner={owner} repo={repo} slug={slug} />
