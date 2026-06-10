@@ -28,12 +28,39 @@ import { get, put } from '@vercel/blob'
 // ─── Opciones base de la microVM ───────────────────────────────────────────────
 
 /**
+ * vCPUs de la microVM, configurable por env `SANDBOX_VCPUS` (default 8).
+ *
+ * Vercel asigna 2 GB de RAM por vCPU (doc oficial /docs/sandbox/pricing). El render
+ * de HyperFrames lanza Chromium headless a 1080×1920 (frames pesados en RAM); con
+ * pocos vCPUs/poca RAM el navegador revienta la memoria de la microVM y el proceso
+ * muere a media ejecución → el SDK lanza "Stream ended before command finished".
+ *
+ * Límites de Vercel Sandbox por plan (doc oficial, actualizada 2026-05-29):
+ *   - Hobby:      máx 4 vCPUs / 8 GB
+ *   - Pro:        máx 8 vCPUs / 16 GB   ← nuestro plan
+ *   - Enterprise: máx 32 vCPUs / 64 GB
+ * Permitido: 1 vCPU o nº PAR entre 2 y 32 (el default de Vercel es 2).
+ *
+ * Elegimos el MÁXIMO de Pro (8 vCPUs → 16 GB) por defecto: el coste se factura por
+ * Active-CPU (tiempo de CPU realmente usado) + memoria provisionada por minuto, así
+ * que más vCPUs no encarece linealmente un render corto, pero sí duplica la RAM
+ * disponible (8 → 16 GB) y reduce drásticamente el riesgo de OOM de Chromium. El
+ * rate-limit de Pro (200 vCPUs/min) cubre de sobra una microVM de 8 vCPUs.
+ *
+ * Se sanea a un entero ≥ 1; valores inválidos caen al default 8.
+ */
+const SANDBOX_VCPUS: number = (() => {
+  const raw = Number(process.env['SANDBOX_VCPUS'])
+  return Number.isInteger(raw) && raw >= 1 ? raw : 8
+})()
+
+/**
  * Runtime + recursos comunes. node22 e iad1 (única región con Sandbox).
- * 4 vCPUs → 4 workers de Chrome en paralelo en el render.
+ * vCPUs configurables (ver `SANDBOX_VCPUS`); 2 GB de RAM por vCPU.
  */
 export const SANDBOX_OPTS = {
   runtime: 'node22',
-  resources: { vcpus: 4 },
+  resources: { vcpus: SANDBOX_VCPUS },
 } as const
 
 /** Directorio destino DENTRO del sandbox donde se vuelca la composición. */
