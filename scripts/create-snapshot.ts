@@ -41,11 +41,15 @@ import {
   prepareSandbox,
   SANDBOX_OPTS,
   SNAPSHOT_TTL_MS,
+  withRetry,
   writeSnapshotPointer,
 } from '../adapters/sandbox-lib'
 
 /** Timeout amplio para el setup completo (incluye descarga de Chromium). */
 const SETUP_TIMEOUT_MS = 15 * 60 * 1000
+
+/** Número de reintentos del ciclo completo de horneado. */
+const BAKE_ATTEMPTS = 3
 
 async function main(): Promise<void> {
   const token = process.env['BLOB_READ_WRITE_TOKEN']
@@ -58,44 +62,67 @@ async function main(): Promise<void> {
     return
   }
 
-  const controller = new AbortController()
   const t0 = Date.now()
 
-  console.log('[create-snapshot] creando microVM fresca…')
-  const sandbox = await Sandbox.create({
-    runtime: SANDBOX_OPTS.runtime,
-    resources: SANDBOX_OPTS.resources,
-    timeout: SETUP_TIMEOUT_MS,
-  })
+  /**
+   * Ciclo completo de horneado envuelto en withRetry.
+   *
+   * CLAVE: cada intento crea un sandbox NUEVO. Un sandbox cuyo stream murió no
+   * es recuperable; hay que recrearlo desde cero. Por eso el `Sandbox.create()`
+   * está DENTRO del callback (no fuera), y el sandbox fallido se limpia con
+   * stop() entre intentos (también dentro del callback, en el finally).
+   */
+  await withRetry(
+    async () => {
+      const controller = new AbortController()
 
-  try {
-    console.log(
-      '[create-snapshot] preparando (dnf + npm + symlinks + browser ensure)…',
-    )
-    await prepareSandbox(sandbox, controller.signal)
+      console.log('[create-snapshot] creando microVM fresca…')
+      const sandbox = await Sandbox.create({
+        runtime: SANDBOX_OPTS.runtime,
+        resources: SANDBOX_OPTS.resources,
+        timeout: SETUP_TIMEOUT_MS,
+      })
 
-    console.log('[create-snapshot] tomando snapshot…')
-    const snapshot = await sandbox.snapshot({ expiration: SNAPSHOT_TTL_MS })
-    const mb = Math.round(snapshot.sizeBytes / 1024 / 1024)
-    console.log(
-      `[create-snapshot] snapshotId=${snapshot.snapshotId} size=${mb}MB`,
-    )
+      try {
+        console.log(
+          '[create-snapshot] preparando (dnf + npm + symlinks + browser ensure)…',
+        )
+        await prepareSandbox(sandbox, controller.signal)
 
-    await writeSnapshotPointer({
-      deploymentId,
-      snapshotId: snapshot.snapshotId,
-      token,
-    })
+        console.log('[create-snapshot] tomando snapshot…')
+        const snapshot = await sandbox.snapshot({ expiration: SNAPSHOT_TTL_MS })
+        const mb = Math.round(snapshot.sizeBytes / 1024 / 1024)
+        console.log(
+          `[create-snapshot] snapshotId=${snapshot.snapshotId} size=${mb}MB`,
+        )
 
-    const s = Math.round((Date.now() - t0) / 1000)
-    console.log(`[create-snapshot] hecho en ${s}s`)
-  } finally {
-    // snapshot() ya detiene la microVM, pero stop() es idempotente y barato.
-    await sandbox.stop().catch(() => {})
-  }
+        await writeSnapshotPointer({
+          deploymentId,
+          snapshotId: snapshot.snapshotId,
+          token,
+        })
+
+        const s = Math.round((Date.now() - t0) / 1000)
+        console.log(`[create-snapshot] hecho en ${s}s`)
+      } finally {
+        // snapshot() ya detiene la microVM; stop() es idempotente y barato.
+        // Si el intento falló, libera la microVM antes del próximo reintento.
+        await sandbox.stop().catch(() => {})
+      }
+    },
+    { attempts: BAKE_ATTEMPTS, label: 'create-snapshot' },
+  )
 }
 
 main().catch((err: unknown) => {
-  console.error('[create-snapshot] FALLÓ', err)
-  process.exit(1)
+  // Tras agotar todos los reintentos el horneado sigue fallando.
+  // Salimos con 0 para que `next build && tsx create-snapshot` NO tumbe el deploy.
+  // El runtime usará el snapshot anterior (readLatestSnapshotId) o el fallback en caliente.
+  console.warn(
+    '[create-snapshot] snapshot NO horneado tras',
+    BAKE_ATTEMPTS,
+    'intentos; el runtime usará fallback en caliente o un snapshot previo.',
+    err,
+  )
+  process.exit(0)
 })
