@@ -3,7 +3,10 @@
  *
  * Interfaz del adaptador de render de tráiler.
  *
- * La implementación real usa Vercel Sandbox (Firecracker microVM).
+ * La implementación REAL vive en `render.sandbox.ts` (`createSandboxRenderAdapter`):
+ * corre HyperFrames en Vercel Sandbox (Firecracker microVM) y sube MP4 + poster
+ * a Vercel Blob. La composición llega al sandbox vía `writeFiles` (NO se clona el
+ * repo → no requiere que el repo esté pusheado ni público).
  * El mock (`render.mock.ts`) devuelve URLs apuntando a __fixtures__/sample.mp4.
  *
  * ──────────────────────────────────────────────────────────────────────────────
