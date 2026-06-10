@@ -55,6 +55,7 @@
       color: #ffffff;
       margin: 24px 0 8px;
       opacity: 0;
+      white-space: nowrap;
       text-shadow: 0 0 80px rgba(88, 166, 255, 0.45);
     }
     #hook .hero-value .suffix {
@@ -135,7 +136,25 @@
         elValue.innerHTML =
           sign + shown + (suffix ? '<span class="suffix">' + suffix + "</span>" : "");
       }
-      paint(0);
+
+      // Ajuste de tamaño: el numero hero es monospace y puede tener de 2 a 6
+      // caracteres ("42" … "245.7k"). A 360px desborda los 1080px de ancho y
+      // recorta el primer/ultimo caracter. Medimos el valor FINAL (la cadena
+      // mas larga de toda la animacion) y reducimos el font-size para que quepa
+      // dentro de un ancho seguro (~90% = 972px, con margen lateral). El tamaño
+      // se fija UNA vez antes de animar: la cuenta GSAP solo toca scale/opacity,
+      // nunca el font-size, asi que el numero no cambia de tamaño a mitad y el
+      // pop de entrada / pulso siguen intactos.
+      var BASE_FONT_PX = 360;
+      var SAFE_WIDTH_PX = 1080 * 0.9; // 972px
+      paint(num); // pinta la cadena final (la mas ancha)
+      elValue.style.fontSize = BASE_FONT_PX + "px";
+      var measuredWidth = elValue.scrollWidth;
+      if (measuredWidth > SAFE_WIDTH_PX) {
+        var fitted = Math.floor(BASE_FONT_PX * (SAFE_WIDTH_PX / measuredWidth));
+        elValue.style.fontSize = fitted + "px";
+      }
+      paint(0); // reset para el contador
 
       var counter = { v: 0 };
       var tl = gsap.timeline({ paused: true });
