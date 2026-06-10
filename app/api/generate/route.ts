@@ -13,21 +13,21 @@
  *   503 { error }                                   — sin slot de render
  *
  * Flujo async:
- *   - La route ESPERA el pipeline (await runPipeline(…)).
- *   - maxDuration = 300 s → Next.js mantiene la serverless function viva hasta
- *     que el pipeline termina (~90 s con render real, <1 s con mock).
- *   - Devuelve 202 inmediatamente con { jobId, status:'rendering' } y dispara
- *     runPipeline en segundo plano (fire-and-forget via void).
+ *   - Devuelve 202 inmediatamente con { jobId, status:'rendering' }.
+ *   - El pipeline se dispara con `after()` de Next 16: registra trabajo
+ *     post-respuesta y, en Vercel, extiende la vida de la invocación vía
+ *     `waitUntil` hasta que la promesa resuelve (o se alcanza maxDuration).
+ *     Esto sustituye al antiguo `void runPipeline(...)`, que podía cortarse
+ *     tras el 202 y dejar el job colgado en 'rendering'.
  *   - El cliente usa GET /api/status?jobId=… para sondear el resultado.
  *
- * En producción el render real tardará ~90 s. maxDuration = 300 s da margen.
- * Si el render real supera 300 s el sandbox puede seguir ejecutándose (Vercel
- * Sandbox tiene hasta 5 h), pero la function serverless expiraría. Para ese
- * escenario se necesitaría una arquitectura de webhook/callback. Por ahora
- * el mock resuelve en <1 ms, así que 300 s es más que suficiente.
+ * En producción el render real tardará ~90 s. maxDuration = 300 s da margen
+ * para GitHub + Copy + render. Si algún día el render superase 300 s, el
+ * sandbox puede seguir vivo (hasta 5 h) pero la invocación expiraría; ese
+ * escenario requeriría una arquitectura de webhook/callback.
  */
 
-import { type NextRequest } from 'next/server'
+import { type NextRequest, after } from 'next/server'
 import { z } from 'zod'
 import {
   checkRateLimit,
@@ -41,7 +41,7 @@ import { createCacheAdapter } from '@/adapters/cache'
 import { createVercelBlobClient } from '@/adapters/blob-client'
 import { fetchRepoData } from '@/adapters/github'
 import { generateCopy } from '@/adapters/script'
-import { createMockRenderAdapter } from '@/adapters/render.mock'
+import { createSandboxRenderAdapter } from '@/adapters/render.sandbox'
 import type { PipelineAdapters } from '@/app/lib/pipeline'
 
 // ─── Configuración de route segment ──────────────────────────────────────────
@@ -94,7 +94,10 @@ function buildProductionAdapters(): PipelineAdapters {
     script: { generateCopy },
     cache: createCacheAdapter(blobClient),
     job: createJobAdapter(blobClient),
-    render: createMockRenderAdapter(), // TODO: reemplazar por render real cuando Vercel Pro activo
+    // Render REAL: corre HyperFrames en Vercel Sandbox y sube a Blob.
+    // Requiere Vercel Pro + OIDC/token de Sandbox (ver REQUISITOS DE DEPLOY).
+    // En tests se inyecta el mock pasando adapters directamente a runPipeline.
+    render: createSandboxRenderAdapter(),
   }
 }
 
@@ -152,13 +155,18 @@ export async function POST(request: NextRequest): Promise<Response> {
     updatedAt: new Date().toISOString(),
   })
 
-  // 7. Disparar pipeline en background (fire-and-forget)
-  //    La function serverless se mantiene viva porque esperamos esta promesa
-  //    antes de que Next.js cierre la respuesta. Con maxDuration=300s tenemos
-  //    margen para el render real.
-  void runPipeline(jobId, owner, repo, adapters).finally(() => {
-    releaseRenderSlot()
-  })
+  // 7. Disparar pipeline DESPUÉS de enviar la respuesta con `after()` (Next 16).
+  //    `after()` registra trabajo post-respuesta y, en Vercel, extiende la vida
+  //    de la invocación vía `waitUntil` hasta que la promesa resuelve (o se
+  //    alcanza maxDuration=300s). Esto corrige el bug del `void runPipeline(...)`:
+  //    sin `after()`, la plataforma podía cortar la invocación tras el 202 y
+  //    dejar el job en 'rendering' para siempre. `after()` también se ejecuta
+  //    aunque la respuesta falle, así que el render arranca de forma fiable.
+  after(() =>
+    runPipeline(jobId, owner, repo, adapters).finally(() => {
+      releaseRenderSlot()
+    }),
+  )
 
   // 8. Responder inmediatamente con 202
   return Response.json({ jobId, status: 'rendering' }, { status: 202 })
