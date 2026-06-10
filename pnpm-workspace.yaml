@@ -1,0 +1,9 @@
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver
+
+onlyBuiltDependencies:
+  - ffmpeg-static
+  - esbuild
+  - onnxruntime-node
+  - protobufjs
