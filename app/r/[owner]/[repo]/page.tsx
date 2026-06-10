@@ -6,12 +6,11 @@ import { TrailerPlayer } from "@/app/components/TrailerPlayer";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getTrailerForToday } from "@/app/lib/server-trailer";
+import { siteUrl } from "@/app/lib/config";
 import { TrailerActions } from "./TrailerActions";
 
 // Next.js 16: en rutas dinámicas, `params` es una Promise que hay que await.
 type PageParams = { params: Promise<{ owner: string; repo: string }> };
-
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
 // Resolución absoluta de URLs (los MP4/poster pueden venir como ruta relativa
 // del mock o como URL absoluta de Blob).
