@@ -29,9 +29,12 @@ export type { Copy }
 /**
  * Modelo barato y rápido en OpenRouter.
  * Configurable por env COPY_MODEL.
- * google/gemini-flash-1.5-8b es one of the cheapest fast models available.
+ *
+ * meta-llama/llama-3.1-8b-instruct: muy barato (~$0.04/M tokens de entrada),
+ * rápido y disponible en OpenRouter. Soporta response_format json_schema.
+ * Alternativa también disponible: openai/gpt-4o-mini (más caro pero más preciso).
  */
-const DEFAULT_MODEL = 'google/gemini-flash-1.5-8b'
+const DEFAULT_MODEL = 'meta-llama/llama-3.1-8b-instruct'
 
 // ─── Schema Zod del Copy de respuesta IA ─────────────────────────────────────
 
