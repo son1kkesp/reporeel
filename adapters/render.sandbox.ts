@@ -82,9 +82,11 @@ import {
   SANDBOX_COMPOSITION_DIR,
   collectCompositionFiles,
   prepareSandbox,
+  readLatestSnapshotId,
   readSnapshotId,
   runOrThrow,
   SANDBOX_OPTS,
+  withRetry,
 } from './sandbox-lib'
 
 // ─── Constantes de configuración ───────────────────────────────────────────────
@@ -237,15 +239,25 @@ async function runRenderWithLog(
 /**
  * Crea (o restaura) el sandbox para el render.
  *
- * Path feliz: restaura desde el snapshot pre-horneado (pointer en Blob) → ~100 ms,
- * SIN descargas en caliente. Si no hay snapshot (o falla la restauración), cae a
- * crear una microVM fresca y prepararla en caliente (prepareSandbox), que replica
- * el setup de la plantilla oficial. Etiqueta la fase como `create` para el job.error.
+ * Estrategia de resolución de snapshot (en orden):
+ *   1. Pointer del deployment actual (`readSnapshotId`): horneado en este build.
+ *   2. Snapshot más reciente disponible en Blob (`readLatestSnapshotId`): reutiliza
+ *      el último snapshot bueno cuando el horneado del build se saltó o falló.
+ *   3. Hot-prepare: microVM fresca + `prepareSandbox` con `withRetry` (3 intentos)
+ *      como último recurso (sin ningún snapshot previo).
+ *
+ * Etiqueta la fase como `create` para job.error.
  */
 async function createOrRestoreSandbox(signal: AbortSignal): Promise<Sandbox> {
-  const snapshotId = await readSnapshotId().catch(() => undefined)
+  // 1. Snapshot del deployment actual.
+  const currentSnapshotId = await readSnapshotId().catch(() => undefined)
+
+  // 2. Si no hay snapshot actual, intentar el más reciente disponible.
+  const snapshotId =
+    currentSnapshotId ?? (await readLatestSnapshotId().catch(() => undefined))
 
   if (snapshotId) {
+    const source = currentSnapshotId ? 'deployment actual' : 'snapshot previo más reciente'
     try {
       // Restaurar desde snapshot: NO se pasa `runtime` (se hereda del snapshot).
       return await Sandbox.create({
@@ -260,25 +272,37 @@ async function createOrRestoreSandbox(signal: AbortSignal): Promise<Sandbox> {
       // es justo lo que provoca el "Stream ended").
       const msg = err instanceof Error ? err.message : String(err)
       throw new Error(
-        `[create] restauración de snapshot ${snapshotId} falló: ${msg}`,
+        `[create] restauración de snapshot ${snapshotId} (${source}) falló: ${msg}`,
       )
     }
   }
 
-  // Sin snapshot: microVM fresca + setup completo en caliente (fallback).
-  const sandbox = await Sandbox.create({
-    runtime: SANDBOX_OPTS.runtime,
-    resources: SANDBOX_OPTS.resources,
-    timeout: SANDBOX_TIMEOUT_MS,
-    signal,
-  }).catch((err: unknown) => {
-    const msg = err instanceof Error ? err.message : String(err)
-    throw new Error(`[create] no se pudo crear la microVM: ${msg}`)
-  })
+  // 3. Sin ningún snapshot disponible: microVM fresca + setup en caliente con reintentos.
+  //    withRetry crea un sandbox nuevo en cada intento (ver create-snapshot.ts para el patrón).
+  return withRetry(
+    async () => {
+      const sandbox = await Sandbox.create({
+        runtime: SANDBOX_OPTS.runtime,
+        resources: SANDBOX_OPTS.resources,
+        timeout: SANDBOX_TIMEOUT_MS,
+        signal,
+      }).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err)
+        throw new Error(`[create] no se pudo crear la microVM: ${msg}`)
+      })
 
-  // prepareSandbox lanza errores ya etiquetados ([install]/[browser]).
-  await prepareSandbox(sandbox, signal)
-  return sandbox
+      try {
+        // prepareSandbox lanza errores ya etiquetados ([install]/[browser]).
+        await prepareSandbox(sandbox, signal)
+        return sandbox
+      } catch (err: unknown) {
+        // Liberar la microVM fallida antes de que withRetry vuelva a intentarlo.
+        await sandbox.stop().catch(() => {})
+        throw err
+      }
+    },
+    { attempts: 3, label: 'hot-prepare' },
+  )
 }
 
 /**
