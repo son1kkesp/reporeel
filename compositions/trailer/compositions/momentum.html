@@ -2,7 +2,8 @@
 <html
   lang="es"
   data-composition-variables='[
-    {"id":"heroValue","type":"string","label":"Valor heroe","default":"228k"},
+    {"id":"momentumValue","type":"string","label":"Valor metrica momentum","default":"1.5k"},
+    {"id":"momentumLabel","type":"string","label":"Etiqueta metrica momentum","default":"contribuidores"},
     {"id":"age","type":"string","label":"Edad del repo","default":"vivo desde 2013"},
     {"id":"line1","type":"string","label":"Linea 1","default":"developers ya confían en él"},
     {"id":"line2","type":"string","label":"Linea 2","default":"Top lenguaje: JavaScript"}
@@ -57,6 +58,14 @@
       text-shadow: 0 0 70px rgba(63, 185, 80, 0.4);
     }
     #momentum .big .suffix { color: #3fb950; }
+    #momentum .metric-label {
+      margin-top: 18px;
+      font-size: 56px;
+      font-weight: 700;
+      color: #c9d6ee;
+      letter-spacing: 1px;
+      opacity: 0;
+    }
     #momentum .age {
       margin-top: 24px;
       font-size: 60px;
@@ -101,6 +110,7 @@
     <div class="wrap">
       <div class="eyebrow" id="eyebrow">Con tracción</div>
       <div class="big" id="big">0</div>
+      <div class="metric-label" id="metricLabel">contribuidores</div>
       <div class="age" id="age">vivo desde 2013</div>
       <div class="lines">
         <div class="line" id="line1"><span class="dot"></span><span id="line1text">linea 1</span></div>
@@ -116,22 +126,27 @@
         ? window.__hyperframes.getVariables()
         : {};
 
-      var heroValueRaw = String(vars.heroValue || "0");
+      // Métrica COMPLEMENTARIA de "proyecto vivo" (contribuidores / commits /
+      // forks): siempre distinta del heroValue que ya enseñó el hook.
+      var metricRaw = String(vars.momentumValue || "0");
+      var metricLabel = String(vars.momentumLabel || "").slice(0, 40);
       var age = String(vars.age || "").slice(0, 40);
       var line1 = String(vars.line1 || "").slice(0, 80);
       var line2 = String(vars.line2 || "").slice(0, 80);
 
+      root.querySelector("#metricLabel").textContent = metricLabel;
+      if (!metricLabel) { root.querySelector("#metricLabel").style.display = "none"; }
       root.querySelector("#age").textContent = age;
       root.querySelector("#line1text").textContent = line1;
       root.querySelector("#line2text").textContent = line2;
       if (!line2) { root.querySelector("#line2").style.display = "none"; }
 
-      var m = heroValueRaw.match(/^([+-]?)([\d.,]+)\s*([a-zA-Z%]*)$/);
+      var m = metricRaw.match(/^([+-]?)([\d.,]+)\s*([a-zA-Z%]*)$/);
       var sign = m ? m[1] : "";
       var num = m ? parseFloat(m[2].replace(/,/g, "")) : 0;
       var suffix = m ? m[3] : "";
       if (isNaN(num)) num = 0;
-      var decimals = /\./.test(heroValueRaw) ? 1 : 0;
+      var decimals = /\./.test(metricRaw) ? 1 : 0;
 
       var bigEl = root.querySelector("#big");
       function paint(v) {
@@ -146,6 +161,7 @@
       tl.fromTo("#eyebrow", { opacity: 0, y: -20 }, { opacity: 1, y: 0, duration: 0.35, ease: "power2.out" }, 0.1);
       tl.fromTo("#big", { opacity: 0, scale: 1.25 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.8)" }, 0.3);
       tl.to(c, { v: num, duration: 1.0, ease: "power2.out", onUpdate: function () { paint(c.v); } }, 0.35);
+      tl.fromTo("#metricLabel", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.4, ease: "power2.out" }, 1.15);
       tl.fromTo("#age", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.4, ease: "power2.out" }, 1.4);
       tl.fromTo("#line1", { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.4, ease: "power2.out" }, 1.7);
       tl.fromTo("#line2", { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.4, ease: "power2.out" }, 2.0);

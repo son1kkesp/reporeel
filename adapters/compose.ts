@@ -6,7 +6,7 @@
  *
  * Contrato (claves EXACTAS de compositions/trailer/meta.json):
  *   repoName, heroKind, heroValue, lang1, lang1Pct, lang2, lang2Pct,
- *   age, tagline, line1, line2, installCmd
+ *   age, momentumValue, momentumLabel, tagline, line1, line2, installCmd
  *
  * NO genera HTML; solo produce el JSON plano para
  *   `hyperframes render --variables '{...}'` / `--variables-file`.
@@ -33,6 +33,8 @@ export interface TrailerVars {
   lang2: string
   lang2Pct: string
   age: string
+  momentumValue: string
+  momentumLabel: string
   tagline: string
   line1: string
   line2: string
@@ -88,6 +90,8 @@ export function composeVars(storyboard: Beat[], copy: Copy): TrailerVars {
     lang2Pct: pctToString(identity['secondLanguagePct']),
 
     age: asString(momentum['age']),
+    momentumValue: asString(momentum['momentumValue']),
+    momentumLabel: asString(momentum['momentumLabel']),
 
     tagline: truncate(asString(copy.tagline), MAX_TEXT),
     line1: truncate(asString(lines[0]), MAX_TEXT),

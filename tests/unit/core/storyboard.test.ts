@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatStars, topLanguages, buildStoryboard } from '@/core/storyboard'
+import { formatStars, topLanguages, buildStoryboard, selectMomentumMetric } from '@/core/storyboard'
 import type { RepoData } from '@/core/repo-data'
 
 // ─── Fixture base ─────────────────────────────────────────────────────────────
@@ -127,6 +127,24 @@ describe('buildStoryboard — estructura de beats', () => {
     expect(momentum?.data.age).toBe('vivo desde 2021')
   })
 
+  it('momentum expone una métrica complementaria (momentumValue + momentumLabel) DISTINTA del heroValue del hook', () => {
+    // react-like: stars altas → hero = stars, momentum debe ser otra cosa
+    const repo: RepoData = {
+      ...baseRepo,
+      stars: 228_000,
+      forks: 46_700,
+      contributorsCount: 1523,
+    }
+    const beats = buildStoryboard(repo)
+    const hero = beats[0]?.data.heroValue
+    const momentum = beats[2]
+    expect(hero).toBe('228k')
+    // Preferencia 1 = contribuidores → formatStars(1523) = "1.5k"
+    expect(momentum?.data.momentumValue).toBe('1.5k')
+    expect(momentum?.data.momentumLabel).toBe('contribuidores')
+    expect(momentum?.data.momentumValue).not.toBe(hero)
+  })
+
   it('cta contiene installCmd inferido de topics npm con latestRelease', () => {
     const repo: RepoData = {
       ...baseRepo,
@@ -167,5 +185,39 @@ describe('topLanguages', () => {
   it('devuelve un solo elemento si solo hay un lenguaje', () => {
     const result = topLanguages({ Rust: 100 })
     expect(result).toEqual([{ name: 'Rust', pct: 100 }])
+  })
+})
+
+describe('selectMomentumMetric', () => {
+  it('por defecto elige contribuidores (preferencia 1) formateado', () => {
+    const repo: RepoData = { ...baseRepo, contributorsCount: 1523 }
+    const metric = selectMomentumMetric(repo, '228k')
+    expect(metric).toEqual({ momentumValue: '1.5k', momentumLabel: 'contribuidores' })
+  })
+
+  it('si contribuidores coincide con el heroValue, pasa a la siguiente (commits / 12 sem)', () => {
+    // contributorsCount=42 → formatStars="42", igual que heroValue "42" del hook
+    const repo: RepoData = {
+      ...baseRepo,
+      contributorsCount: 42,
+      commitActivityLast12w: [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10], // suma 120
+    }
+    const metric = selectMomentumMetric(repo, '42')
+    expect(metric.momentumValue).not.toBe('42')
+    expect(metric).toEqual({ momentumValue: '120', momentumLabel: 'commits / 12 sem' })
+  })
+
+  it('garantiza SIEMPRE un valor distinto del heroValue del hook', () => {
+    const repo: RepoData = {
+      ...baseRepo,
+      stars: 228_000,
+      contributorsCount: 1523,
+      forks: 46_700,
+      commitActivityLast12w: [12, 18, 9, 22, 15, 7, 31, 14, 19, 28, 11, 16],
+    }
+    const beats = buildStoryboard(repo)
+    const heroValue = beats[0]?.data.heroValue as string
+    const metric = selectMomentumMetric(repo, heroValue)
+    expect(metric.momentumValue).not.toBe(heroValue)
   })
 })

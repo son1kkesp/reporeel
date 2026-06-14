@@ -14,6 +14,8 @@
     { "id": "lang2",     "type": "string", "label": "Lenguaje 2",                      "default": "TypeScript" },
     { "id": "lang2Pct",  "type": "string", "label": "Porcentaje lenguaje 2",           "default": "31" },
     { "id": "age",       "type": "string", "label": "Edad del repo",                   "default": "vivo desde 2013" },
+    { "id": "momentumValue", "type": "string", "label": "Valor metrica momentum",       "default": "1.5k" },
+    { "id": "momentumLabel", "type": "string", "label": "Etiqueta metrica momentum",    "default": "contribuidores" },
     { "id": "tagline",   "type": "string", "label": "Tagline",                         "default": "react — 228k estrellas de confianza · Hecho en JavaScript" },
     { "id": "line1",     "type": "string", "label": "Linea de copy 1",                "default": "228k developers ya confían en él" },
     { "id": "line2",     "type": "string", "label": "Linea de copy 2",                "default": "Top lenguaje: JavaScript" },

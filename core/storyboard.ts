@@ -83,6 +83,40 @@ function selectHeroKind(repo: RepoData): { heroKind: HeroKind; heroValue: string
   return { heroKind: 'stars', heroValue: formatStars(repo.stars) }
 }
 
+// ─── Métrica de momentum (escena "proyecto vivo") ─────────────────────────────
+
+export interface MomentumMetric {
+  momentumValue: string
+  momentumLabel: string
+}
+
+/**
+ * Elige una métrica COMPLEMENTARIA de "proyecto vivo/activo" para la escena
+ * `momentum`, garantizando que SIEMPRE sea distinta del `heroValue` del hook
+ * (evita el dato redundante: el hook ya enseña ese número).
+ *
+ * Preferencia de métrica (mayor a menor relevancia para "comunidad activa"):
+ *   1. contribuidores   → "contribuidores"
+ *   2. commits / 12 sem  → "commits / 12 sem"
+ *   3. forks             → "forks"
+ *
+ * Se recorre la lista en orden y se devuelve la primera candidata cuyo valor
+ * formateado NO coincida con `heroValue`. Si por algún caso raro todas
+ * coincidieran, cae en la última (forks). Determinista: sin red ni Date.now().
+ */
+export function selectMomentumMetric(repo: RepoData, heroValue: string): MomentumMetric {
+  const commits12w = repo.commitActivityLast12w.reduce((a, b) => a + b, 0)
+
+  const candidates: MomentumMetric[] = [
+    { momentumValue: formatStars(repo.contributorsCount), momentumLabel: 'contribuidores' },
+    { momentumValue: formatStars(commits12w), momentumLabel: 'commits / 12 sem' },
+    { momentumValue: formatStars(repo.forks), momentumLabel: 'forks' },
+  ]
+
+  const distinct = candidates.find((c) => c.momentumValue !== heroValue)
+  return distinct ?? candidates[candidates.length - 1]!
+}
+
 // ─── Construcción del storyboard ──────────────────────────────────────────────
 
 /**
@@ -103,6 +137,9 @@ export function buildStoryboard(repo: RepoData): Beat[] {
 
   const createdYear = new Date(repo.createdAt).getFullYear()
   const age = `vivo desde ${createdYear}`
+
+  // Métrica complementaria para la escena momentum (SIEMPRE distinta del hook)
+  const { momentumValue, momentumLabel } = selectMomentumMetric(repo, heroValue)
 
   // installCmd: si hay latestRelease lo usamos, si no buscamos en topics
   const installCmd = inferInstallCmd(repo)
@@ -135,6 +172,8 @@ export function buildStoryboard(repo: RepoData): Beat[] {
         forks: repo.forks,
         contributorsCount: repo.contributorsCount,
         age,
+        momentumValue,
+        momentumLabel,
       },
     },
     {

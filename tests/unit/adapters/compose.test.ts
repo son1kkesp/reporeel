@@ -22,7 +22,7 @@ const reactRepo: RepoData = {
   commitActivityLast12w: [12, 18, 9, 22, 15, 7, 31, 14, 19, 28, 11, 16],
 }
 
-// Las 12 claves EXACTAS declaradas en compositions/trailer/meta.json
+// Las 14 claves EXACTAS declaradas en compositions/trailer/meta.json
 const EXPECTED_KEYS = [
   'repoName',
   'heroKind',
@@ -32,6 +32,8 @@ const EXPECTED_KEYS = [
   'lang2',
   'lang2Pct',
   'age',
+  'momentumValue',
+  'momentumLabel',
   'tagline',
   'line1',
   'line2',
@@ -47,7 +49,7 @@ function compose(repo: RepoData) {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('composeVars', () => {
-  it('produce EXACTAMENTE las 12 claves del contrato meta.json (ni más ni menos)', () => {
+  it('produce EXACTAMENTE las 14 claves del contrato meta.json (ni más ni menos)', () => {
     const vars = compose(reactRepo)
     expect(Object.keys(vars).sort()).toEqual([...EXPECTED_KEYS].sort())
   })
@@ -80,6 +82,13 @@ describe('composeVars', () => {
     // Porcentajes redondeados a entero, como string
     expect(vars.lang1Pct).toBe('68')
     expect(vars.lang2Pct).toBe('31')
+  })
+
+  it('momentumValue/momentumLabel mapean la métrica complementaria y difieren del heroValue', () => {
+    const vars = compose(reactRepo)
+    expect(vars.momentumValue).toBe('1.5k') // contribuidores: formatStars(1523)
+    expect(vars.momentumLabel).toBe('contribuidores')
+    expect(vars.momentumValue).not.toBe(vars.heroValue) // distinto del hook ("228k")
   })
 
   it('incluye age, tagline, line1, line2 e installCmd no vacíos', () => {
@@ -136,6 +145,8 @@ describe('composeVars', () => {
         "lang2Pct": "31",
         "line1": "228k developers ya confían en él",
         "line2": "Top lenguaje: JavaScript",
+        "momentumLabel": "contribuidores",
+        "momentumValue": "1.5k",
         "repoName": "react",
         "tagline": "react — 228k estrellas de confianza · Hecho en JavaScript",
       }
