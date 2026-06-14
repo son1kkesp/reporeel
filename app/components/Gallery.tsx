@@ -34,7 +34,7 @@ export async function Gallery() {
       {entries.length > 0 ? (
         <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {entries.map((entry) => (
-            <ReelCard key={entry.repo} entry={entry} />
+            <ReelCard key={`${entry.owner}/${entry.repo}`} entry={entry} />
           ))}
         </ul>
       ) : (
@@ -45,22 +45,23 @@ export async function Gallery() {
 }
 
 function ReelCard({ entry }: { entry: GalleryEntry }) {
+  const slug = `${entry.owner}/${entry.repo}`;
   return (
     <li>
       <Link
-        href={`/r/${entry.repo}`}
+        href={`/r/${slug}`}
         className="group block focus-visible:outline-none"
-        aria-label={`Ver el tráiler de ${entry.repo}`}
+        aria-label={`Ver el tráiler de ${slug}`}
       >
         <TrailerPlayer
-          src={entry.mp4Url}
-          poster={entry.poster}
-          label={`Tráiler de ${entry.repo}`}
+          src={`/v/${slug}`}
+          poster={`/p/${slug}`}
+          label={`Tráiler de ${slug}`}
           autoLoop
           className="transition-transform duration-300 group-hover:-translate-y-1 group-focus-visible:ring-3 group-focus-visible:ring-brand/50"
         />
         <span className="mt-2 block truncate text-xs font-medium text-muted-foreground transition-colors group-hover:text-foreground">
-          {entry.repo}
+          {slug}
         </span>
       </Link>
     </li>

@@ -3,13 +3,15 @@
  *
  * Helper de servidor para la galería de tráileres pre-renderizados.
  *
- * Lee `gallery-index.json` de Vercel Blob: una lista de entradas
- * `{ repo, mp4Url, poster }`. Este índice AÚN NO EXISTE (se siembra en una
- * fase posterior con Vercel Pro), por lo que la función DEBE degradar con
- * elegancia a una lista vacía si:
- *   - la clave no está en Blob,
- *   - el JSON está corrupto o no cumple el schema,
- *   - el cliente Blob falla (sin token en local, error de red, etc.).
+ * Lee `gallery-index.json` de Vercel Blob. Soporta dos formatos:
+ *
+ *   Formato nuevo (seed): `{ items: [{ owner, repo }, ...] }`
+ *   Formato legado:       `[{ repo, mp4Url, poster }, ...]`
+ *                         o `{ items: [{ repo, mp4Url, poster }, ...] }`
+ *
+ * Las URLs de vídeo/póster se derivan en tiempo de render a través del proxy
+ * de la app (`/v/{owner}/{repo}` y `/p/{owner}/{repo}`), de modo que la
+ * galería funciona bajo cualquier dominio sin re-sembrar el índice.
  *
  * Nunca lanza: la UI decide qué mostrar a partir de un array (vacío o no).
  *
@@ -29,21 +31,49 @@ export const GALLERY_INDEX_KEY = 'gallery-index.json'
 
 // ─── Schema y tipos ────────────────────────────────────────────────────────────
 
+/**
+ * Entrada normalizada de galería.
+ * Las URLs se construyen por el componente a través de las rutas proxy:
+ *   vídeo  → /v/{owner}/{repo}
+ *   póster → /p/{owner}/{repo}
+ */
 export const GalleryEntrySchema = z.object({
-  /** Identificador legible del repo, p. ej. "facebook/react". */
+  /** Propietario del repo, p. ej. "facebook". */
+  owner: z.string().min(1),
+  /** Nombre del repo, p. ej. "react". */
   repo: z.string().min(1),
-  /** URL del MP4 vertical 9:16. */
-  mp4Url: z.string().min(1),
-  /** URL del póster (primer frame) para el atributo `poster` del vídeo. */
-  poster: z.string().min(1),
 })
 
 export type GalleryEntry = z.infer<typeof GalleryEntrySchema>
 
-/** El índice es un array de entradas (toleramos también `{ items: [...] }`). */
+// ─── Schemas de entrada (toleran ambos formatos) ───────────────────────────────
+
+/**
+ * Entrada en formato legado: `{ repo: "owner/repo", mp4Url, poster }`.
+ * La transforma al formato normalizado extrayendo owner y repo del campo `repo`.
+ */
+const LegacyEntrySchema = z
+  .object({
+    repo: z.string().min(1),
+    mp4Url: z.string().min(1),
+    poster: z.string().min(1),
+  })
+  .transform((e) => {
+    const parts = e.repo.split('/')
+    const owner = parts[0] ?? e.repo
+    const repo = parts[1] ?? e.repo
+    return { owner, repo }
+  })
+
+/** Acepta entrada nueva o legada y devuelve `GalleryEntry`. */
+const AnyEntrySchema = z.union([GalleryEntrySchema, LegacyEntrySchema])
+
+/** El índice puede ser un array plano o `{ items: [...] }`, en cualquier formato. */
 const GalleryIndexSchema = z.union([
-  z.array(GalleryEntrySchema),
-  z.object({ items: z.array(GalleryEntrySchema) }).transform((o) => o.items),
+  z.array(AnyEntrySchema),
+  z
+    .object({ items: z.array(AnyEntrySchema) })
+    .transform((o) => o.items),
 ])
 
 // ─── Helper público ────────────────────────────────────────────────────────────

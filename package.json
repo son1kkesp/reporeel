@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build && tsx scripts/create-snapshot.ts",
+    "seed": "tsx --env-file .env.local scripts/seed-gallery.ts",
     "snapshot": "tsx scripts/create-snapshot.ts",
     "start": "next start",
     "lint": "eslint",
