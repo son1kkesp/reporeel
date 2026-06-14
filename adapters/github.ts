@@ -130,9 +130,28 @@ export function mapRepoData(raw: RawGitHubPayload): RepoData {
 
 // ─── Función con red ─────────────────────────────────────────────────────────
 
+/**
+ * Sanea el token de GitHub. Vercel a veces inyecta un BOM (U+FEFF) en las env
+ * vars; un BOM en el valor rompe la cabecera Authorization de fetch/undici con
+ * "Cannot convert argument to a ByteString". Quitamos BOM/zero-width + espacios;
+ * si queda vacío devolvemos undefined → Octokit funciona sin autenticar (repos
+ * públicos, con rate-limit más bajo).
+ */
+function sanitizeToken(raw: string | undefined): string | undefined {
+  if (!raw) return undefined
+  const cleaned = Array.from(raw)
+    .filter((ch) => {
+      const cp = ch.codePointAt(0)
+      return cp !== 0xfeff && cp !== 0x200b // BOM y zero-width space
+    })
+    .join('')
+    .trim()
+  return cleaned.length > 0 ? cleaned : undefined
+}
+
 function createOctokit(): Octokit {
   return new Octokit({
-    auth: process.env['GITHUB_TOKEN'],
+    auth: sanitizeToken(process.env['GITHUB_TOKEN']),
   })
 }
 
