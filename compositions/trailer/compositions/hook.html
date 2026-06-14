@@ -141,12 +141,14 @@
       // caracteres ("42" … "245.7k"). A 360px desborda los 1080px de ancho y
       // recorta el primer/ultimo caracter. Medimos el valor FINAL (la cadena
       // mas larga de toda la animacion) y reducimos el font-size para que quepa
-      // dentro de un ancho seguro (~90% = 972px, con margen lateral). El tamaño
-      // se fija UNA vez antes de animar: la cuenta GSAP solo toca scale/opacity,
-      // nunca el font-size, asi que el numero no cambia de tamaño a mitad y el
-      // pop de entrada / pulso siguen intactos.
+      // dentro de un ancho seguro (~81% = 875px). Antes el objetivo era 90%
+      // (972px) y la "k"/"M" quedaba pegada al borde derecho; bajarlo a ~81%
+      // deja margen comodo a AMBOS lados (la .stack ademas centra el numero).
+      // El tamaño se fija UNA vez antes de animar: la cuenta GSAP solo toca
+      // scale/opacity, nunca el font-size, asi que el numero no cambia de
+      // tamaño a mitad y el pop de entrada / pulso siguen intactos.
       var BASE_FONT_PX = 360;
-      var SAFE_WIDTH_PX = 1080 * 0.9; // 972px
+      var SAFE_WIDTH_PX = 875; // ~81% de 1080, margen comodo a ambos lados
       paint(num); // pinta la cadena final (la mas ancha)
       elValue.style.fontSize = BASE_FONT_PX + "px";
       var measuredWidth = elValue.scrollWidth;
